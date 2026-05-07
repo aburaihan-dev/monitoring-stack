@@ -1,0 +1,16 @@
+# HTTP catch-all: redirect everything to HTTPS + expose /health for Docker healthcheck
+
+server {
+    listen 80 default_server;
+    server_name _;
+
+    location /health {
+        access_log off;
+        return 200 "ok\n";
+        add_header Content-Type text/plain;
+    }
+
+    location / {
+        return 301 https://$$host$$request_uri;
+    }
+}

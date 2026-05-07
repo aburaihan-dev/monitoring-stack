@@ -1,0 +1,70 @@
+groups:
+  - name: container.rules
+    interval: 1m
+    rules:
+
+      # ── Recording Rules ──────────────────────────────────────────────────
+      - record: job:container_cpu_utilisation:rate5m
+        expr: >
+          sum by(container_label_com_docker_compose_service) (
+            rate(container_cpu_usage_seconds_total{
+              image!="",
+              container_label_com_docker_compose_service!=""
+            }[5m])
+          )
+
+      - record: job:container_memory_utilisation:ratio
+        expr: >
+          sum by(container_label_com_docker_compose_service) (
+            container_memory_usage_bytes{
+              image!="",
+              container_label_com_docker_compose_service!=""
+            }
+          ) /
+          sum by(container_label_com_docker_compose_service) (
+            container_spec_memory_limit_bytes{
+              image!="",
+              container_label_com_docker_compose_service!="",
+              container_spec_memory_limit_bytes > 0
+            }
+          )
+
+      # ── Alerting Rules ───────────────────────────────────────────────────
+      - alert: ContainerHighCPU
+        expr: job:container_cpu_utilisation:rate5m > 0.80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container high CPU: {{ $labels.container_label_com_docker_compose_service }}"
+          description: "CPU at {{ $value | humanizePercentage }}."
+
+      - alert: ContainerHighMemory
+        expr: job:container_memory_utilisation:ratio > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container high memory: {{ $labels.container_label_com_docker_compose_service }}"
+          description: "Memory at {{ $value | humanizePercentage }} of limit."
+
+      - alert: ContainerOOMKilled
+        expr: >
+          kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+          OR
+          increase(container_oom_events_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container OOM-killed: {{ $labels.name }}"
+          description: "Container was killed by the OOM killer."
+
+      - alert: ContainerDown
+        expr: up{job="cadvisor"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "cAdvisor unreachable"
+          description: "Cannot scrape container metrics from cAdvisor."

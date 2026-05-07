@@ -1,0 +1,118 @@
+groups:
+  - name: garage.rules
+    interval: 1m
+    rules:
+
+      # ── Recording Rules ────────────────────────────────────────────────────
+
+      # Disk utilisation ratio for the data volume (0..1)
+      - record: job:garage_disk_utilisation:ratio
+        expr: >
+          1 - (
+            garage_local_disk_avail{volume="data"}
+            / garage_local_disk_total{volume="data"}
+          )
+
+      # S3 error rate — fraction of requests returning errors (exc. 404 which is normal)
+      - record: job:garage_s3_error_rate:rate5m
+        expr: >
+          sum(rate(api_s3_error_counter{status_code!="404"}[5m]))
+          /
+          (sum(rate(api_s3_request_counter[5m])) > 0)
+
+      # ── Alerting Rules ─────────────────────────────────────────────────────
+
+      # Alloy cannot reach the Garage /metrics endpoint at all.
+      - alert: GarageDown
+        expr: up{job="garage"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: object-storage
+        annotations:
+          summary: "Garage is unreachable"
+          description: >
+            Alloy cannot scrape Garage metrics (job=garage). The node may be
+            down, the admin token may be wrong, or the network is disrupted.
+
+      # Cluster cannot serve all requests — data may be inaccessible.
+      - alert: GarageNotAvailable
+        expr: cluster_available == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: object-storage
+        annotations:
+          summary: "Garage cluster cannot serve requests"
+          description: >
+            cluster_available=0: at least one partition lacks quorum. Loki,
+            Tempo and Mimir writes/reads are likely failing. Check node
+            connectivity immediately.
+
+      # All nodes connected? If not, redundancy is degraded (single-node stacks
+      # will always fire this — safe to silence for single-node deployments).
+      - alert: GarageNotHealthy
+        expr: cluster_healthy == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: object-storage
+        annotations:
+          summary: "Garage cluster is degraded (not all nodes connected)"
+          description: >
+            cluster_healthy=0 for >5 m. One or more layout nodes are
+            disconnected. The cluster is still serving requests but has reduced
+            redundancy.
+
+      # Disk usage >80% on the data volume.
+      - alert: GarageHighDiskUsage
+        expr: job:garage_disk_utilisation:ratio > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          component: object-storage
+        annotations:
+          summary: "Garage data disk usage above 80%"
+          description: >
+            Data disk is {{ $value | humanizePercentage }} full.
+            Consider expanding storage or adjusting retention for Loki/Tempo/Mimir.
+
+      # Disk usage >90% — critical, writes will fail soon.
+      - alert: GarageDiskAlmostFull
+        expr: job:garage_disk_utilisation:ratio > 0.90
+        for: 2m
+        labels:
+          severity: critical
+          component: object-storage
+        annotations:
+          summary: "Garage data disk usage above 90% — writes may fail"
+          description: >
+            Data disk is {{ $value | humanizePercentage }} full.
+            Immediate action required to prevent write failures.
+
+      # Block resync errors > 0 means Garage detected data it cannot recover.
+      # Per Garage docs: "THIS SHOULD BE ZERO, OR FALL BACK TO ZERO RAPIDLY".
+      - alert: GarageBlockResyncErrors
+        expr: block_resync_errored_blocks > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: object-storage
+        annotations:
+          summary: "Garage has unrecoverable block resync errors"
+          description: >
+            {{ $value }} block(s) could not be resynced. This indicates
+            potential data loss. Inspect Garage logs immediately.
+
+      # Sustained S3 error rate >5% (excluding 404 Not Found which is expected).
+      - alert: GarageHighS3ErrorRate
+        expr: job:garage_s3_error_rate:rate5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: object-storage
+        annotations:
+          summary: "Garage S3 API error rate above 5%"
+          description: >
+            {{ $value | humanizePercentage }} of S3 requests are returning errors
+            (excluding 404s). This will affect Loki, Tempo, and Mimir performance.

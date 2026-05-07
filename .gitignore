@@ -1,0 +1,10 @@
+.env
+configs/nginx/ssl/cert.pem
+configs/nginx/ssl/key.pem
+configs/nginx/.htpasswd
+.certbot-domain
+
+# Python
+__pycache__/
+*.pyc
+*.pyo

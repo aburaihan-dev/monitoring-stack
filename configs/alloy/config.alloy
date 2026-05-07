@@ -1,0 +1,223 @@
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║              Grafana Alloy — Unified Collection Pipeline                ║
+// ║                                                                          ║
+// ║  Signals handled:                                                        ║
+// ║    • Host metrics    (node-exporter scrape → Mimir)                      ║
+// ║    • Container metrics (cAdvisor scrape → Mimir)                         ║
+// ║    • Blackbox probes (HTTP/TCP → Mimir)                                   ║
+// ║    • Self metrics   (Alloy + Mimir/Loki/Tempo → Mimir)                   ║
+// ║    • Garage metrics (S3 object storage → Mimir, Bearer token auth)        ║
+// ║    • Docker logs    (autodiscovery via Docker socket → Loki)              ║
+// ║    • OTLP traces    (gRPC:4317, HTTP:4318 → Tempo)                       ║
+// ║    • OTLP metrics   (→ Mimir via remote_write)                            ║
+// ║    • OTLP logs      (→ Loki)                                              ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// ─── Logging ────────────────────────────────────────────────────────────────
+logging {
+  level  = "warn"
+  format = "logfmt"
+}
+
+// ─── OTLP Receiver (external apps) ─────────────────────────────────────────
+otelcol.receiver.otlp "ingress" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+  output {
+    traces  = [otelcol.processor.batch.default.input]
+    metrics = [otelcol.processor.batch.default.input]
+    logs    = [otelcol.processor.batch.default.input]
+  }
+}
+
+// ─── Batch Processor ────────────────────────────────────────────────────────
+otelcol.processor.batch "default" {
+  timeout             = "5s"
+  send_batch_size     = 1000
+  send_batch_max_size = 2000
+  output {
+    traces  = [otelcol.exporter.otlp.tempo.input]
+    metrics = [otelcol.exporter.prometheus.mimir.input]
+    logs    = [otelcol.exporter.loki.default.input]
+  }
+}
+
+// ─── Trace Export → Tempo ────────────────────────────────────────────────────
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// ─── Metrics Export → Mimir (OTel path) ─────────────────────────────────────
+otelcol.exporter.prometheus "mimir" {
+  forward_to = [prometheus.remote_write.mimir.receiver]
+}
+
+// ─── Log Export → Loki (OTel path) ──────────────────────────────────────────
+otelcol.exporter.loki "default" {
+  forward_to = [loki.write.loki.receiver]
+}
+
+// ─── Prometheus Remote Write → Mimir ────────────────────────────────────────
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = "http://mimir:9009/api/v1/push"
+  }
+  external_labels = {
+    cluster = "monitoring-stack",
+    env     = "production",
+  }
+}
+
+// ─── Loki Write ─────────────────────────────────────────────────────────────
+loki.write "loki" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// ─── Prometheus Scrape: node-exporter ───────────────────────────────────────
+prometheus.scrape "node_exporter" {
+  targets    = [{"__address__" = "node-exporter:9100"}]
+  forward_to = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "15s"
+  job_name   = "node-exporter"
+}
+
+// ─── Prometheus Scrape: cAdvisor ────────────────────────────────────────────
+prometheus.scrape "cadvisor" {
+  targets    = [{"__address__" = "cadvisor:8080"}]
+  forward_to = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "15s"
+  job_name   = "cadvisor"
+}
+
+// ─── Prometheus Scrape: Alloy self-metrics ───────────────────────────────────
+prometheus.scrape "alloy_self" {
+  targets    = [{"__address__" = "localhost:12345"}]
+  forward_to = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "30s"
+  job_name   = "alloy"
+}
+
+// ─── Prometheus Scrape: Mimir ────────────────────────────────────────────────
+prometheus.scrape "mimir_self" {
+  targets    = [{"__address__" = "mimir:9009"}]
+  forward_to = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "30s"
+  job_name   = "mimir"
+}
+
+// ─── Prometheus Scrape: Loki ─────────────────────────────────────────────────
+prometheus.scrape "loki_self" {
+  targets    = [{"__address__" = "loki:3100"}]
+  forward_to = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "30s"
+  job_name   = "loki"
+  metrics_path = "/metrics"
+}
+
+// ─── Prometheus Scrape: Tempo ────────────────────────────────────────────────
+prometheus.scrape "tempo_self" {
+  targets    = [{"__address__" = "tempo:3200"}]
+  forward_to = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "30s"
+  job_name   = "tempo"
+  metrics_path = "/metrics"
+}
+
+// ─── Prometheus Scrape: Garage (S3 object storage) ───────────────────────────
+// Garage v2 exposes Prometheus metrics at the admin port (3903).
+// The endpoint requires the admin Bearer token.
+prometheus.scrape "garage_self" {
+  targets      = [{"__address__" = "garage:3903"}]
+  forward_to   = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "30s"
+  job_name     = "garage"
+  metrics_path = "/metrics"
+  authorization {
+    type        = "Bearer"
+    credentials = env("GARAGE_ADMIN_TOKEN")
+  }
+}
+
+// ─── Prometheus Scrape: Blackbox HTTP probes ─────────────────────────────────
+// Add your endpoints to probe to the targets list.
+prometheus.scrape "blackbox_http" {
+  targets = [
+    {
+      "__address__"  = "blackbox-exporter:9115",
+      "__param_target" = "http://grafana:3000/api/health",
+      "__param_module" = "http_2xx",
+      "instance"     = "grafana",
+      "job"          = "blackbox",
+    },
+    {
+      "__address__"  = "blackbox-exporter:9115",
+      "__param_target" = "http://alertmanager:9093/-/healthy",
+      "__param_module" = "http_2xx",
+      "instance"     = "alertmanager",
+      "job"          = "blackbox",
+    },
+    {
+      "__address__"  = "blackbox-exporter:9115",
+      "__param_target" = "http://garage:3903/health",
+      "__param_module" = "http_2xx",
+      "instance"     = "garage",
+      "job"          = "blackbox",
+    },
+  ]
+  metrics_path    = "/probe"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "30s"
+  job_name        = "blackbox"
+}
+
+// ─── Docker Log Discovery ────────────────────────────────────────────────────
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+discovery.relabel "docker_containers" {
+  targets = discovery.docker.containers.targets
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_logging_jobname"]
+    target_label  = "job"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_logging"]
+    regex         = "alloy"
+    action        = "keep"
+  }
+}
+
+loki.source.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.docker_containers.output
+  forward_to       = [loki.write.loki.receiver]
+  refresh_interval = "5s"
+  relabeling_rules = discovery.relabel.docker_containers.rules
+}
+
+// ─── Loki Push API (for agents that push directly) ──────────────────────────
+loki.source.api "push" {
+  http {
+    listen_address = "0.0.0.0"
+    listen_port    = 3500
+  }
+  forward_to = [loki.write.loki.receiver]
+}

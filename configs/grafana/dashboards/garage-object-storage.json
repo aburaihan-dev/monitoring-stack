@@ -1,0 +1,236 @@
+{
+  "__inputs": [],
+  "__requires": [
+    {"type": "grafana", "id": "grafana", "name": "Grafana", "version": "8.0.0"},
+    {"type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"}
+  ],
+  "annotations": {"list": []},
+  "description": "Garage v2 object storage — cluster health, disk, S3 API and block manager metrics",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+
+    { "collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 100, "title": "Cluster Health", "type": "row" },
+
+    { "id": 1, "type": "stat",
+      "title": "Cluster Available",
+      "description": "1 = all partitions have quorum and can serve requests",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DEGRADED", "color": "red"}, "1": {"text": "OK", "color": "green"}}}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "targets": [{"datasource": {"uid": "mimir"}, "expr": "cluster_available", "legendFormat": "available", "refId": "A"}]
+    },
+
+    { "id": 2, "type": "stat",
+      "title": "Cluster Healthy",
+      "description": "1 = all layout nodes are connected",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DEGRADED", "color": "orange"}, "1": {"text": "OK", "color": "green"}}}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "orange", "value": null}, {"color": "green", "value": 1}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "targets": [{"datasource": {"uid": "mimir"}, "expr": "cluster_healthy", "legendFormat": "healthy", "refId": "A"}]
+    },
+
+    { "id": 3, "type": "stat",
+      "title": "Block Resync Errors",
+      "description": "MUST be 0. Nonzero = potential data loss.",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "targets": [{"datasource": {"uid": "mimir"}, "expr": "block_resync_errored_blocks", "legendFormat": "errored blocks", "refId": "A"}]
+    },
+
+    { "id": 4, "type": "stat",
+      "title": "Connected Nodes",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "value"},
+      "targets": [
+        {"datasource": {"uid": "mimir"}, "expr": "cluster_connected_nodes", "legendFormat": "connected", "refId": "A"},
+        {"datasource": {"uid": "mimir"}, "expr": "cluster_known_nodes", "legendFormat": "known", "refId": "B"}
+      ]
+    },
+
+    { "id": 5, "type": "stat",
+      "title": "Partitions at Quorum",
+      "description": "Should equal cluster_partitions (256)",
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 128}, {"color": "green", "value": 256}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "targets": [{"datasource": {"uid": "mimir"}, "expr": "cluster_partitions_quorum", "legendFormat": "quorum partitions", "refId": "A"}]
+    },
+
+    { "id": 6, "type": "stat",
+      "title": "Garage Version",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "blue"}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "value"},
+      "targets": [{"datasource": {"uid": "mimir"}, "expr": "garage_build_info", "legendFormat": "{{version}}", "refId": "A"}]
+    },
+
+    { "collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+      "id": 101, "title": "Disk Storage", "type": "row" },
+
+    { "id": 10, "type": "gauge",
+      "title": "Data Disk Used",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0, "max": 1,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.75}, {"color": "red", "value": 0.90}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true},
+      "targets": [{"datasource": {"uid": "mimir"}, "expr": "1 - (garage_local_disk_avail{volume=\"data\"} / garage_local_disk_total{volume=\"data\"})", "legendFormat": "data disk", "refId": "A"}]
+    },
+
+    { "id": 11, "type": "gauge",
+      "title": "Metadata Disk Used",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0, "max": 1,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.75}, {"color": "red", "value": 0.90}]},
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true},
+      "targets": [{"datasource": {"uid": "mimir"}, "expr": "1 - (garage_local_disk_avail{volume=\"metadata\"} / garage_local_disk_total{volume=\"metadata\"})", "legendFormat": "metadata disk", "refId": "A"}]
+    },
+
+    { "id": 12, "type": "timeseries",
+      "title": "Disk Available",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}},
+      "targets": [
+        {"datasource": {"uid": "mimir"}, "expr": "garage_local_disk_avail{volume=\"data\"}", "legendFormat": "data avail", "refId": "A"},
+        {"datasource": {"uid": "mimir"}, "expr": "garage_local_disk_avail{volume=\"metadata\"}", "legendFormat": "metadata avail", "refId": "B"}
+      ]
+    },
+
+    { "collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+      "id": 102, "title": "S3 API", "type": "row" },
+
+    { "id": 20, "type": "timeseries",
+      "title": "S3 Request Rate (by endpoint)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"datasource": {"uid": "mimir"}, "expr": "topk(10, sum by (api_endpoint) (rate(api_s3_request_counter[5m])))", "legendFormat": "{{api_endpoint}}", "refId": "A"}]
+    },
+
+    { "id": 21, "type": "timeseries",
+      "title": "S3 Error Rate (by endpoint, exc. 404)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps", "custom": {"lineWidth": 2},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]},
+          "color": {"mode": "fixed", "fixedColor": "red"}
+        }
+      },
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"datasource": {"uid": "mimir"}, "expr": "sum by (api_endpoint, status_code) (rate(api_s3_error_counter{status_code!=\"404\"}[5m]))", "legendFormat": "{{api_endpoint}} ({{status_code}})", "refId": "A"}]
+    },
+
+    { "id": 22, "type": "timeseries",
+      "title": "S3 Request Duration (p50 / p95 / p99)",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 23},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [
+        {"datasource": {"uid": "mimir"}, "expr": "histogram_quantile(0.50, sum by (le) (rate(api_s3_request_duration_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"datasource": {"uid": "mimir"}, "expr": "histogram_quantile(0.95, sum by (le) (rate(api_s3_request_duration_bucket[5m])))", "legendFormat": "p95", "refId": "B"},
+        {"datasource": {"uid": "mimir"}, "expr": "histogram_quantile(0.99, sum by (le) (rate(api_s3_request_duration_bucket[5m])))", "legendFormat": "p99", "refId": "C"}
+      ]
+    },
+
+    { "collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 31},
+      "id": 103, "title": "Block Manager", "type": "row" },
+
+    { "id": 30, "type": "timeseries",
+      "title": "Block Bytes Read / Written",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}},
+      "targets": [
+        {"datasource": {"uid": "mimir"}, "expr": "rate(block_bytes_read[5m])", "legendFormat": "read", "refId": "A"},
+        {"datasource": {"uid": "mimir"}, "expr": "rate(block_bytes_written[5m])", "legendFormat": "written", "refId": "B"}
+      ]
+    },
+
+    { "id": 31, "type": "timeseries",
+      "title": "Block Resync Queue & Errors",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {"defaults": {"custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}},
+      "targets": [
+        {"datasource": {"uid": "mimir"}, "expr": "block_resync_queue_length", "legendFormat": "queue length", "refId": "A"},
+        {"datasource": {"uid": "mimir"}, "expr": "block_resync_errored_blocks", "legendFormat": "errored blocks (MUST=0)", "refId": "B"}
+      ]
+    }
+  ],
+
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["garage", "object-storage", "s3", "storage"],
+  "templating": {"list": []},
+  "time": {"from": "now-3h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Garage — Object Storage",
+  "uid": "garage-storage",
+  "version": 1
+}

@@ -1,0 +1,64 @@
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    s3:
+      endpoint: garage:3900
+      insecure: true
+      bucketnames: loki
+      access_key_id: ${GARAGE_ACCESS_KEY_ID}
+      secret_access_key: ${GARAGE_SECRET_ACCESS_KEY}
+      s3forcepathstyle: true
+      region: garage
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: "2024-01-01"
+      store: tsdb
+      object_store: s3
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+
+limits_config:
+  retention_period: ${LOKI_RETENTION_PERIOD:-30d}
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+  max_query_length: 0
+  max_query_parallelism: 32
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+query_range:
+  results_cache:
+    cache:
+      redis:
+        endpoint: redis:6379
+
+frontend:
+  encoding: protobuf
+
+ruler:
+  alertmanager_url: http://alertmanager:9093
+
+analytics:
+  reporting_enabled: false

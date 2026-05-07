@@ -1,0 +1,40 @@
+groups:
+  - name: blackbox.rules
+    interval: 1m
+    rules:
+
+      - alert: EndpointDown
+        expr: probe_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Endpoint down: {{ $labels.instance }}"
+          description: "Probe to {{ $labels.instance }} has been failing for more than 2 minutes."
+
+      - alert: EndpointSlowResponse
+        expr: probe_duration_seconds > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow endpoint: {{ $labels.instance }}"
+          description: "Probe to {{ $labels.instance }} takes {{ $value | humanizeDuration }} (threshold 2s)."
+
+      - alert: SSLCertExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSL cert expiring soon: {{ $labels.instance }}"
+          description: "Certificate on {{ $labels.instance }} expires in {{ $value | humanizeDuration }}."
+
+      - alert: SSLCertExpired
+        expr: probe_ssl_earliest_cert_expiry - time() <= 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SSL cert EXPIRED: {{ $labels.instance }}"
+          description: "Certificate on {{ $labels.instance }} has expired."

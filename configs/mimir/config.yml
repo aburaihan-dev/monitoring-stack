@@ -1,0 +1,82 @@
+# Mimir — single-process mode (monolithic)
+# Suitable for single-node production; scale to distributed mode later.
+
+target: all
+
+multitenancy_enabled: false
+
+server:
+  http_listen_port: 9009
+  grpc_listen_port: 9095
+  log_level: warn
+
+common:
+  storage:
+    backend: s3
+    s3:
+      endpoint:          garage:3900
+      bucket_name:       mimir
+      access_key_id:     ${GARAGE_ACCESS_KEY_ID}
+      secret_access_key: ${GARAGE_SECRET_ACCESS_KEY}
+      insecure:          true
+      region:            garage
+
+blocks_storage:
+  s3:
+    bucket_name: mimir
+  tsdb:
+    dir: /data/mimir/tsdb
+    retention_period: ${MIMIR_RETENTION_PERIOD:-90d}
+
+compactor:
+  data_dir: /data/mimir/compactor
+  sharding_ring:
+    kvstore:
+      store: memberlist
+
+distributor:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: memberlist
+
+ingester:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: memberlist
+    replication_factor: 1
+
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+
+ruler:
+  alertmanager_url: http://alertmanager:9093
+  rule_path: /data/mimir/rules
+
+ruler_storage:
+  backend: filesystem
+  filesystem:
+    dir: /rules
+
+alertmanager:
+  external_url: http://alertmanager:9093
+
+alertmanager_storage:
+  backend: s3
+  s3:
+    bucket_name: mimir
+
+limits:
+  ingestion_rate:              30000
+  ingestion_burst_size:        50000
+  max_global_series_per_user:  0
+  compactor_blocks_retention_period: ${MIMIR_RETENTION_PERIOD:-90d}
+  out_of_order_time_window: 10m
+
+memberlist:
+  join_members: []
+
+analytics:
+  reporting_enabled: false
