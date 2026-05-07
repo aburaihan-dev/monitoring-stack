@@ -335,11 +335,11 @@ services:
     labels: *monitoring-labels
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "/garage", "-c", "/etc/garage/garage.toml", "status"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 30s
+      test: ["CMD", "/garage", "--version"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
   garage-init:
     image: python:3-alpine
