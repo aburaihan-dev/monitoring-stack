@@ -88,8 +88,8 @@ services:
     image: grafana/alloy:${ALLOY_VERSION:-v1.16.1}
     container_name: alloy
     restart: unless-stopped
+    user: "0"
     command:
-      - run
       - --storage.path=/var/lib/alloy/data
       - --server.http.listen-addr=0.0.0.0:12345
       - /etc/alloy/config.alloy
@@ -125,6 +125,7 @@ services:
     image: grafana/mimir:${MIMIR_VERSION:-3.0.6}
     container_name: mimir
     restart: unless-stopped
+    user: "0"
     command:
       - -config.file=/etc/mimir/config.yml
       - -config.expand-env=true
@@ -158,6 +159,7 @@ services:
     image: grafana/loki:${LOKI_VERSION:-3.7.1}
     container_name: loki
     restart: unless-stopped
+    user: "0"
     command:
       - -config.file=/etc/loki/config.yml
       - -config.expand-env=true
@@ -191,6 +193,7 @@ services:
     image: grafana/tempo:${TEMPO_VERSION:-2.10.5}
     container_name: tempo
     restart: unless-stopped
+    user: "0"
     command:
       - -config.file=/etc/tempo/config.yml
       - -config.expand-env=true
@@ -225,6 +228,7 @@ services:
     image: prom/alertmanager:${ALERTMANAGER_VERSION:-v0.32.1}
     container_name: alertmanager
     restart: unless-stopped
+    user: "0"
     command:
       - --config.file=/etc/alertmanager/config.yml
       - --log.level=warn
@@ -251,6 +255,7 @@ services:
     image: ghcr.io/jamesread/uncomplicated-alert-receiver:latest
     container_name: uar
     restart: unless-stopped
+    user: "0"
     expose:
       - "8080"
     networks:
@@ -382,6 +387,7 @@ services:
     image: redis:${REDIS_VERSION:-8-alpine}
     container_name: redis
     restart: unless-stopped
+    user: "0"
     command: redis-server --maxmemory 200mb --maxmemory-policy allkeys-lru
     expose:
       - "6379"
