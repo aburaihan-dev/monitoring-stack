@@ -109,6 +109,7 @@ usage() {
   printf "  ${CYAN}%-22s${RESET} %s\n" "restart <svc>"   "Restart a service"
   printf "  ${CYAN}%-22s${RESET} %s\n" "recreate <svc>"  "Force-recreate a service (picks up config changes)"
   printf "  ${CYAN}%-22s${RESET} %s\n" "clean"           "Stop + remove ALL containers and volumes ${RED}(data loss!)${RESET}"
+  printf "  ${CYAN}%-22s${RESET} %s\n" "reset"           "Full wipe + reconfigure: clean, clear certs/secrets, re-run init ${RED}(data loss!)${RESET}"
   echo
   echo -e "${BOLD}Observability${RESET}"
   printf "  ${CYAN}%-22s${RESET} %s\n" "status"          "Show container names, health, and uptime"
@@ -638,6 +639,48 @@ cmd_clean() {
   [[ "${confirm}" == "yes" ]] || { info "Aborted."; exit 0; }
   cd "${SCRIPT_DIR}" && ${COMPOSE} down -v --remove-orphans
   ok "Stack and all volumes removed"
+  echo -e "  ${DIM}Tip: run  ./stack reset  to also wipe certs/secrets and re-run the setup wizard${RESET}"
+}
+
+cmd_reset() {
+  echo
+  echo -e "${RED}${BOLD}  !! FULL RESET — ALL DATA AND CONFIGURATION WILL BE DESTROYED !!${RESET}"
+  echo
+  echo -e "  This will:"
+  echo -e "  ${DIM}  • Stop all containers and delete all volumes (Loki/Mimir/Tempo/Garage data)${RESET}"
+  echo -e "  ${DIM}  • Remove configs/garage/garage.toml${RESET}"
+  echo -e "  ${DIM}  • Remove configs/nginx/.htpasswd and configs/nginx/ssl/ (TLS certs)${RESET}"
+  echo -e "  ${DIM}  • Optionally wipe .env and generate fresh secrets${RESET}"
+  echo -e "  ${DIM}  • Re-run the full setup wizard (domain, secrets, cert, auth, start)${RESET}"
+  echo
+  read -rp "  Type 'RESET' (uppercase) to confirm: " confirm
+  [[ "${confirm}" == "RESET" ]] || { info "Aborted."; exit 0; }
+
+  echo
+  info "1/3  Tearing down containers and volumes…"
+  cd "${SCRIPT_DIR}" && ${COMPOSE} down -v --remove-orphans 2>/dev/null || true
+  ok "Containers and volumes removed"
+
+  info "2/3  Removing generated config files…"
+  rm -f  "${SCRIPT_DIR}/configs/garage/garage.toml"
+  rm -f  "${SCRIPT_DIR}/configs/nginx/.htpasswd"
+  rm -rf "${SCRIPT_DIR}/configs/nginx/ssl"
+  rm -f  "${SCRIPT_DIR}/.certbot-domain"
+  ok "Generated configs cleared (garage.toml, htpasswd, ssl/)"
+
+  echo
+  read -rp "  Wipe .env and start with fresh secrets? [Y/n]: " wipe_env
+  if [[ "${wipe_env,,}" != "n" ]]; then
+    rm -f "${ENV_FILE}"
+    ok ".env removed — setup wizard will create a fresh one"
+  else
+    ok ".env kept — existing domain and secrets will be reused"
+  fi
+
+  echo
+  info "3/3  Launching setup wizard…"
+  echo
+  cmd_init
 }
 
 cmd_status() {
@@ -764,6 +807,7 @@ case "${CMD}" in
   restart)          cmd_restart "${@}" ;;
   recreate)         cmd_recreate "${@}" ;;
   clean)            cmd_clean ;;
+  reset)            cmd_reset ;;
   status)           cmd_status ;;
   ps)               cmd_ps ;;
   logs)             cmd_logs "${@}" ;;
