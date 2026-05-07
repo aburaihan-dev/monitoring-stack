@@ -26,7 +26,6 @@ blocks_storage:
     bucket_name: mimir
   tsdb:
     dir: /data/mimir/tsdb
-    retention_period: ${MIMIR_RETENTION_PERIOD:-90d}
 
 compactor:
   data_dir: /data/mimir/compactor
@@ -69,6 +68,3 @@ limits:
 
 memberlist:
   join_members: []
-
-analytics:
-  reporting_enabled: false
