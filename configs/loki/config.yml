@@ -69,7 +69,7 @@ query_range:
   results_cache:
     cache:
       redis:
-        endpoint: redis:6379
+        endpoint: valkey:6379
         timeout: 500ms
 
 frontend:

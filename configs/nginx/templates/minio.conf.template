@@ -14,11 +14,11 @@ server {
     include /etc/nginx/snippets/security-headers.conf;
 
     client_max_body_size 5g;
+    proxy_read_timeout   600s;
 
     location / {
         include /etc/nginx/snippets/proxy-headers.conf;
         proxy_pass  http://garage:3900;
         client_max_body_size 5g;
-        proxy_read_timeout   600s;
     }
 }

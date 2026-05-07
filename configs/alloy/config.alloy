@@ -210,7 +210,6 @@ loki.source.docker "containers" {
   targets          = discovery.relabel.docker_containers.output
   forward_to       = [loki.write.loki.receiver]
   refresh_interval = "5s"
-  relabeling_rules = discovery.relabel.docker_containers.rules
 }
 
 // ─── Loki Push API (for agents that push directly) ──────────────────────────

@@ -63,6 +63,7 @@ limits:
   ingestion_rate:              30000
   ingestion_burst_size:        50000
   max_global_series_per_user:  0
+  max_label_names_per_series:  50
   compactor_blocks_retention_period: ${MIMIR_RETENTION_PERIOD:-90d}
   out_of_order_time_window: 10m
 
