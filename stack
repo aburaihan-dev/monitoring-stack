@@ -572,22 +572,29 @@ _garage_render_config() {
   cat > "${out}" <<TOML
 metadata_dir = "/var/lib/garage/meta"
 data_dir     = "/var/lib/garage/data"
-db_engine    = "lmdb"
+db_engine    = "sqlite"
 
-# Single-node: no replication. For multi-node HA, change to "2" or "3".
+# Single-node setup — no replication. Change to 2 or 3 for HA cluster.
 replication_factor = 1
 
-rpc_bind_addr   = "[::]:3901"
-rpc_public_addr = "garage:3901"
+# Use loopback for single-node so the garage CLI can reach itself inside the
+# container without relying on hostname resolution (matches reference setup).
+rpc_bind_addr   = "0.0.0.0:3901"
+rpc_public_addr = "127.0.0.1:3901"
 rpc_secret      = "${rpc_secret}"
 
 [s3_api]
 s3_region     = "garage"
-api_bind_addr = "[::]:3900"
+api_bind_addr = "0.0.0.0:3900"
 root_domain   = ".s3.garage"
 
+[s3_web]
+bind_addr   = "0.0.0.0:3902"
+root_domain = ".web.garage"
+index       = "index.html"
+
 [admin]
-api_bind_addr = "[::]:3903"
+api_bind_addr = "0.0.0.0:3903"
 admin_token   = "${admin_token}"
 TOML
   ok "configs/garage/garage.toml rendered"

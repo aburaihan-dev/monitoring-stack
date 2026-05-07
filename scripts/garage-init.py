@@ -16,7 +16,10 @@ ADMIN_TOKEN       = os.environ["GARAGE_ADMIN_TOKEN"]
 ACCESS_KEY_ID     = os.environ["GARAGE_ACCESS_KEY_ID"]
 SECRET_ACCESS_KEY = os.environ["GARAGE_SECRET_ACCESS_KEY"]
 BUCKETS           = ["loki", "tempo", "mimir"]
-CAPACITY_BYTES    = 107_374_182_400  # 100 GiB — adjust if disk is smaller
+# Capacity hint for layout algorithm (GiB). Set GARAGE_CAPACITY_GB in .env
+# to match your actual available disk space. Default: 100 GiB.
+_capacity_gb      = int(os.environ.get("GARAGE_CAPACITY_GB", "100"))
+CAPACITY_BYTES    = _capacity_gb * 1024 ** 3
 
 
 def api(method, path, body=None):

@@ -327,7 +327,8 @@ services:
     expose:
       - "3900"   # S3 API (internal — used by Loki, Tempo, Mimir)
       - "3901"   # RPC (internal)
-      - "3903"   # Admin API (internal)
+      - "3902"   # S3 website hosting (internal)
+      - "3903"   # Admin API + metrics (internal)
     networks:
       - monitoring
     mem_limit: 256m
@@ -353,6 +354,7 @@ services:
       - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN}
       - GARAGE_ACCESS_KEY_ID=${GARAGE_ACCESS_KEY_ID}
       - GARAGE_SECRET_ACCESS_KEY=${GARAGE_SECRET_ACCESS_KEY}
+      - GARAGE_CAPACITY_GB=${GARAGE_CAPACITY_GB:-100}
     volumes:
       - ./scripts/garage-init.py:/scripts/garage-init.py:ro
     networks:
