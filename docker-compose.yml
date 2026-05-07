@@ -126,7 +126,12 @@ services:
     restart: unless-stopped
     command:
       - -config.file=/etc/mimir/config.yml
+      - -config.expand-env=true
       - -server.http-listen-port=9009
+    environment:
+      - GARAGE_ACCESS_KEY_ID
+      - GARAGE_SECRET_ACCESS_KEY
+      - MIMIR_RETENTION_PERIOD
     volumes:
       - ./configs/mimir/config.yml:/etc/mimir/config.yml:ro
       - ./configs/rules:/rules/anonymous:ro
@@ -152,7 +157,13 @@ services:
     image: grafana/loki:${LOKI_VERSION:-3.7.1}
     container_name: loki
     restart: unless-stopped
-    command: -config.file=/etc/loki/config.yml
+    command:
+      - -config.file=/etc/loki/config.yml
+      - -config.expand-env=true
+    environment:
+      - GARAGE_ACCESS_KEY_ID
+      - GARAGE_SECRET_ACCESS_KEY
+      - LOKI_RETENTION_PERIOD
     volumes:
       - ./configs/loki/config.yml:/etc/loki/config.yml:ro
       - loki-data:/loki
@@ -179,7 +190,13 @@ services:
     image: grafana/tempo:${TEMPO_VERSION:-2.10.5}
     container_name: tempo
     restart: unless-stopped
-    command: -config.file=/etc/tempo/config.yml
+    command:
+      - -config.file=/etc/tempo/config.yml
+      - -config.expand-env=true
+    environment:
+      - GARAGE_ACCESS_KEY_ID
+      - GARAGE_SECRET_ACCESS_KEY
+      - TEMPO_RETENTION_PERIOD
     volumes:
       - ./configs/tempo/config.yml:/etc/tempo/config.yml:ro
       - tempo-data:/var/tempo

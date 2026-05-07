@@ -60,14 +60,6 @@ ruler_storage:
   filesystem:
     dir: /rules
 
-alertmanager:
-  external_url: http://alertmanager:9093
-
-alertmanager_storage:
-  backend: s3
-  s3:
-    bucket_name: mimir
-
 limits:
   ingestion_rate:              30000
   ingestion_burst_size:        50000

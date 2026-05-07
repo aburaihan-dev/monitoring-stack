@@ -12,15 +12,16 @@ distributor:
 
 ingester:
   trace_idle_period: 10s
-  max_block_bytes: 1_000_000
+  max_block_bytes: 1000000
   max_block_duration: 5m
 
 compactor:
-  compaction_window: 1h
-  max_block_bytes: 100_000_000
-  block_retention: ${TEMPO_RETENTION_PERIOD:-336h}
-  compacted_block_retention: 10m
-  compaction_cycle: 30s
+  compaction:
+    block_retention: ${TEMPO_RETENTION_PERIOD:-336h}
+    compacted_block_retention: 1h
+    compaction_window: 1h
+    max_block_bytes: 107374182400
+    compaction_cycle: 30s
 
 storage:
   trace:
@@ -37,10 +38,6 @@ storage:
       path: /var/tempo/traces
     wal:
       path: /var/tempo/wal
-
-querier:
-  frontend_worker:
-    frontend_address: tempo:3200
 
 query_frontend:
   search:
@@ -63,5 +60,5 @@ overrides:
     metrics_generator:
       processors: [service-graphs, span-metrics]
 
-analytics:
+usage_report:
   reporting_enabled: false
