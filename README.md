@@ -2,7 +2,7 @@
 
 > **Full-stack observability for production.**
 > Infrastructure metrics, container metrics, application traces & logs, synthetic probes, and alerting —
-> unified in a single Grafana-based stack with Nginx reverse proxy and S3-compatible object storage.
+> unified in a single Grafana-based stack with Garage S3-compatible object storage.
 
 ---
 
@@ -15,12 +15,11 @@
 5. [Configuration Reference](#configuration-reference)
 6. [Instrumenting Your Application](#instrumenting-your-application)
 7. [Alert Rules & Notifications](#alert-rules--notifications)
-8. [TLS / SSL Setup](#tls--ssl-setup)
-9. [CLI Reference](#cli-reference)
-10. [Retention & Storage](#retention--storage)
-11. [Directory Structure](#directory-structure)
-12. [Production Hardening](#production-hardening)
-13. [Troubleshooting](#troubleshooting)
+8. [CLI Reference](#cli-reference)
+9. [Retention & Storage](#retention--storage)
+10. [Directory Structure](#directory-structure)
+11. [Production Hardening](#production-hardening)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -32,8 +31,6 @@
 |------|----------------|---------|
 | Docker Engine | 24+ | Container runtime |
 | Docker Compose | v2 (plugin) | Orchestration |
-| `openssl` | any | TLS cert generation |
-| `apache2-utils` / `httpd-tools` | any | `htpasswd` for nginx auth |
 | RAM | **8 GB** | Stack peak ~5.2 GB |
 
 ### 1 — Clone
@@ -44,20 +41,7 @@ cd monitoring-stack
 chmod +x stack
 ```
 
-### 2 — Add DNS entries
-
-Point all subdomains at your host IP. For local dev, add to `/etc/hosts`:
-
-```
-127.0.0.1  grafana.monitoring.local
-127.0.0.1  alertmanager.monitoring.local
-127.0.0.1  uar.monitoring.local
-127.0.0.1  alloy.monitoring.local
-127.0.0.1  ingest.monitoring.local
-127.0.0.1  s3.monitoring.local
-```
-
-### 3 — Run the init wizard
+### 2 — Run the init wizard
 
 ```bash
 ./stack init
@@ -67,57 +51,55 @@ The wizard walks through every step interactively:
 
 | Step | What happens |
 |------|-------------|
-| **Domain** | Enter your `BASE_DOMAIN` (default: `monitoring.local`) |
+| **Domain** | Enter your `BASE_DOMAIN` (used in Grafana root URL and alert links) |
 | **Admin user** | Enter Grafana admin username (default: `admin`) |
 | **Auto-generate secrets** | Generates and writes all passwords/keys to `.env`, then displays them once |
 | **Notifications** | Optionally configure Slack webhook and/or email (SMTP) |
-| **SSL cert** | Choose: self-signed / existing cert / Let's Encrypt / ZeroSSL |
-| **htpasswd** | Set nginx basic-auth credentials |
-| **Stack up** | Pulls images and starts all 14 services |
+| **Stack up** | Pulls images and starts all 13 services |
 
 > 💡 **Save the generated secrets** — they are displayed once during init and written to `.env`.
 > Back up `.env` to a password manager; it is gitignored and never committed.
 
-### 4 — Verify
+### 3 — Verify
 
 ```bash
 ./stack status     # colour-coded health for all containers
 ./stack urls       # print all service URLs
 ```
 
-Open `https://grafana.<BASE_DOMAIN>` → log in with your `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`.
+Open `http://<HOST_IP>:3000` → log in with your `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         NGINX  (80 → 443)                               │
-│   grafana.*  alertmanager.*  alloy.*  ingest.*  uar.*  s3.*             │
-└──────┬───────────┬──────────────┬──────────┬──────────┬─────────────────┘
-       │           │              │          │          │
-   Grafana   Alertmanager      Alloy UI     UAR        Garage S3
-   (3000)    (9093)            (12345)    (8080)       (3900)
-                  ┌──────────────────────────────────────────┐
-                  │               Grafana Alloy               │
-                  │  OTLP gRPC :4317   OTLP HTTP :4318       │
-                  │  Loki push  :3500  Prom rw   :9090       │
-                  │  Scrapes: node-exporter, cAdvisor,       │
-                  │           blackbox, Garage, self         │
-                  │  Docker log auto-discovery               │
-                  └────┬──────────────┬──────────────┬───────┘
-                       │              │              │
-                     Mimir           Loki          Tempo
-                    (9009)          (3100)         (3200)
-                       └──────────────┴──────────────┘
-                                      │
-                                   Garage
-                          loki-data / tempo-data / mimir-data
-                          (S3-compatible — MIT licensed)
++-------------------------------------------------------------------------+
+|          Direct host ports (no built-in reverse proxy)                   |
+|  Grafana :3000   Alertmanager :9093   Alloy UI :12345                   |
+|  OTLP gRPC :4317  OTLP HTTP :4318    Loki push :3500                    |
++------------------+---------------------------+----------------------------+
+         |                    |                           |
+     Grafana           Alertmanager           Grafana Alloy
+     (3000)              (9093)               (collector)
+                                    +-------------------------------+
+                                    |         Grafana Alloy         |
+                                    |  OTLP gRPC :4317              |
+                                    |  OTLP HTTP :4318              |
+                                    |  Loki push :3500              |
+                                    |  Scrapes node/cAdvisor/       |
+                                    |   blackbox/Garage/self        |
+                                    |  Docker log auto-discovery    |
+                                    +------+----------+-------+-----+
+                                           |          |       |
+                                         Mimir      Loki   Tempo
+                                         (9009)    (3100)  (3200)
+                                           +----------+-------+
+                                                    |
+                                                 Garage
+                                       loki/ tempo/ mimir/ buckets
+                                       (Garage v2 — AGPLv3)
 ```
-
----
 
 ## Signal Flow
 
@@ -138,25 +120,25 @@ Open `https://grafana.<BASE_DOMAIN>` → log in with your `GRAFANA_ADMIN_USER` /
 
 ## Services & Ports
 
-| Service | Internal port | External URL | Auth |
-|---------|--------------|--------------|------|
-| Grafana | 3000 | `https://grafana.<BASE_DOMAIN>` | Grafana login |
-| Alertmanager | 9093 | `https://alertmanager.<BASE_DOMAIN>` | nginx basic auth |
-| Alloy UI | 12345 | `https://alloy.<BASE_DOMAIN>` | nginx basic auth |
-| OTLP HTTP ingest | 4318 | `https://ingest.<BASE_DOMAIN>/v1/` | — |
-| Loki push | 3500 | `https://ingest.<BASE_DOMAIN>/loki/` | — |
-| UAR | 8080 | `https://uar.<BASE_DOMAIN>` | nginx basic auth |
-| Garage S3 | 3900 | `https://s3.<BASE_DOMAIN>` | Garage key/secret |
-| Mimir | 9009 | internal only | — |
-| Loki | 3100 | internal only | — |
-| Tempo | 3200 | internal only | — |
-| Node Exporter | 9100 | internal only | — |
-| cAdvisor | 8080 | internal only | — |
-| Blackbox Exporter | 9115 | internal only | — |
-| Redis | 6379 | internal only | — |
+| Service | Image | Version | Host port | Notes |
+|---------|-------|---------|-----------|-------|
+| Grafana | `grafana/grafana` | 13.0.1 | **:3000** | Admin UI |
+| Grafana Alloy | `grafana/alloy` | v1.16.1 | **:12345** UI · **:4317** gRPC · **:4318** HTTP · **:3500** Loki | Unified collector |
+| Alertmanager | `prom/alertmanager` | v0.32.1 | **:9093** | Alert routing |
+| UAR | `ghcr.io/jamesread/uncomplicated-alert-receiver` | latest | internal | Alert inbox UI |
+| Mimir | `grafana/mimir` | 3.0.6 | internal | Metrics storage (90 d) |
+| Loki | `grafana/loki` | 3.7.1 | internal | Log storage (30 d) |
+| Tempo | `grafana/tempo` | 2.10.5 | internal | Trace storage (14 d) |
+| Garage | `dxflrs/garage` | v2.3.0 | internal | S3-compatible object store |
+| Valkey | `valkey/valkey` | 9.0.4-alpine3.23 | internal | Query result cache |
+| node-exporter | `prom/node-exporter` | v1.11.1 | internal | Host metrics |
+| cAdvisor | `ghcr.io/google/cadvisor` | 0.56.2 | internal | Container metrics |
+| Blackbox Exporter | `prom/blackbox-exporter` | v0.28.0 | internal | Synthetic probes |
 
-All internal services are **Docker-network-only** — no host ports exposed.
-
+> Alloy, Grafana, and Alertmanager are exposed directly on host ports.
+> All storage and source services are **Docker-network-only**.
+> To add TLS/auth in front, place your own reverse proxy (Caddy, Traefik, nginx)
+> in front and expose only that proxy externally.
 ---
 
 ## Configuration Reference
@@ -323,105 +305,21 @@ Edit `configs/alertmanager/config.yml` to wire up:
 
 ---
 
-## TLS / SSL Setup
+## Reverse Proxy & TLS (optional)
 
-Run at any time (also called automatically by `./stack init`):
+This stack does **not** include a built-in reverse proxy. Services are accessible
+directly on their host ports. To add HTTPS and authentication:
 
-```bash
-./stack cert
-```
+| Option | Quick start |
+|--------|-------------|
+| **Caddy** (recommended) | `caddy reverse-proxy --from grafana.yourdomain.com --to :3000` |
+| **Traefik** | Add a `traefik` service to `docker-compose.yml` with label-based routing |
+| **nginx** | Mount a custom `nginx.conf` and map port 443 to the services |
 
-You will be prompted to choose from four options:
-
-```
-  1) Self-signed         (dev/testing — browser security warning)
-  2) Existing cert       (paste paths to your cert + key files)
-  3) Let's Encrypt       (free, browser-trusted, auto-renew — requires public domain)
-  4) ZeroSSL             (free, ACME v2 alternative CA — requires public domain + EAB)
-```
-
-### Option 1 — Self-signed
-
-Generates a 10-year RSA-2048 cert covering `*.BASE_DOMAIN` + `localhost` instantly via `openssl`. Browsers will show a security warning — acceptable for local/dev use only.
-
-### Option 2 — Existing cert (Let's Encrypt obtained separately)
-
-The script prompts for paths to your cert and key files, copies them to `configs/nginx/ssl/`, verifies the pair match, and prints the expiry date.
-
-```bash
-./stack cert
-# → Choose 2
-# → Cert:  /etc/letsencrypt/live/example.com/fullchain.pem
-# → Key:   /etc/letsencrypt/live/example.com/privkey.pem
-```
-
-### Option 3 — Let's Encrypt (automated)
-
-Requires `certbot` installed on the host and a **publicly reachable domain**.
-
-```bash
-# Install certbot first if needed
-sudo apt install certbot          # Ubuntu/Debian
-sudo dnf install certbot          # RHEL/Fedora
-brew install certbot              # macOS
-
-./stack cert   # → Choose 3
-```
-
-Then choose the challenge type:
-
-| Challenge | When to use |
-|-----------|-------------|
-| **HTTP-01 standalone** | Port 80 reachable from internet; nginx is paused ~30 s |
-| **DNS-01 manual** | Behind firewall / wildcard cert; you add one DNS TXT record |
-
-HTTP-01 issues individual certs per subdomain. DNS-01 issues a wildcard `*.BASE_DOMAIN`.
-
-### Option 4 — ZeroSSL (automated)
-
-Same flow as Let's Encrypt but uses the ZeroSSL CA. Requires free EAB credentials:
-
-1. Sign up at [app.zerossl.com](https://app.zerossl.com)
-2. Go to **Developer** → **EAB Credentials** → generate a key pair
-3. Run `./stack cert` → choose **4** → paste the EAB Key ID and HMAC Key when prompted
-
-### Auto-renewal (options 3 & 4)
-
-After ACME cert generation, the script prints a ready-to-paste cron job:
-
-```bash
-# Add with: sudo crontab -e
-0 3 * * 1  cd /opt/monitoring-stack && ./stack cert-renew >> /var/log/stack-cert-renew.log 2>&1
-```
-
-`cert-renew` stops nginx, calls `certbot renew`, copies the new cert, and reloads nginx — all in one command.
-
-### Swapping a cert on a running stack
-
-```bash
-./stack cert          # choose any option
-./stack nginx-test    # verify config is valid
-./stack nginx-reload  # zero-downtime reload
-```
+> 🔒 **Firewall tip:** Allow only your reverse proxy port (443) from the internet.
+> Block direct access to :3000, :9093, :12345 etc. with `ufw deny <port>`.
 
 ---
-
-## CLI Reference
-
-```bash
-./stack <command> [service]
-```
-
-### Setup
-
-| Command | Description |
-|---------|-------------|
-| `./stack init` | Full wizard: domain → secrets → SSL → htpasswd → up |
-| `./stack secrets` | Rotate all auto-generated secrets in `.env` |
-| `./stack cert` | Set up TLS (4 options: self-signed / existing / Let's Encrypt / ZeroSSL) |
-| `./stack cert-renew` | Renew ACME cert and reload nginx (run via cron weekly) |
-| `./stack auth` | (Re)create nginx `htpasswd` credentials |
-| `./stack pull` | Pull latest images for all services |
 
 ### Lifecycle
 
@@ -444,12 +342,9 @@ After ACME cert generation, the script prints a ready-to-paste cron job:
 | `./stack open` | Open Grafana in your browser |
 | `./stack urls` | Print all service URLs |
 
-### Nginx
 
 | Command | Description |
 |---------|-------------|
-| `./stack nginx-reload` | Reload config without downtime |
-| `./stack nginx-test` | Test nginx config for syntax errors |
 
 ### Validation
 
@@ -539,18 +434,19 @@ ufw deny 9009/tcp   # Mimir   — backend only
 - Never commit `.env` to version control (it is gitignored)
 - Rotate `GARAGE_ADMIN_TOKEN` periodically — update `.env` then `./stack recreate garage alloy`
 - Use a secrets manager (Vault, AWS SSM) for production deployments
+### Firewall
 
-### Resource limits
-
-Resource limits are already set per service in `docker-compose.yml`.
-Review and tune `mem_limit` / `cpus` to match your host capacity.
-
-### Backup
+If Grafana and Alertmanager are only for internal access, block their host ports:
 
 ```bash
-# Backup Garage data directory
-docker run --rm -v garage-data:/data -v $(pwd):/backup \
-  alpine tar czf /backup/garage-backup-$(date +%Y%m%d).tar.gz /data
+# Allow only from trusted networks
+ufw allow from 192.168.0.0/16 to any port 3000  # Grafana
+ufw allow from 192.168.0.0/16 to any port 9093  # Alertmanager
+ufw allow from 192.168.0.0/16 to any port 12345 # Alloy UI
+ufw deny 3000
+ufw deny 9093
+ufw deny 12345
+# Storage backends are internal-only (no host ports)
 ```
 
 ### Let's Encrypt auto-renewal
@@ -558,9 +454,6 @@ docker run --rm -v garage-data:/data -v $(pwd):/backup \
 Add a cron job (or systemd timer) to renew and reload:
 
 ```bash
-# /etc/cron.d/monitoring-certbot
-0 3 * * * root certbot renew --quiet && \
-  cd /opt/monitoring-stack && ./stack cert && ./stack nginx-reload
 ```
 
 ---
@@ -575,25 +468,14 @@ Add a cron job (or systemd timer) to renew and reload:
 ./stack logs garage-init  # check bucket creation
 ./stack logs mimir        # rules loading errors appear here
 ```
-
-### nginx: Bad Gateway
-
-```bash
-./stack nginx-test        # syntax errors?
-./stack logs nginx        # upstream connection refused?
-./stack ps                # is the upstream service actually running?
-```
-
-### Cert/key mismatch (nginx won't start)
+### Grafana "Bad Gateway" or service unreachable
 
 ```bash
-./stack cert              # choose option 2 and re-paste the correct files
-./stack nginx-test && ./stack nginx-reload
+./stack status            # which container is down?
+./stack logs alloy         # pipeline errors?
+./stack logs mimir         # rules loading errors?
 ```
 
-### Grafana datasource "No data"
-
-1. Check Alloy is scraping: `./stack logs alloy`
 2. Check Mimir is healthy: `./stack logs mimir`
 3. Verify datasource UIDs in Grafana → Connections → Data sources:
    - Mimir UID must be `mimir`, Loki → `loki`, Tempo → `tempo`

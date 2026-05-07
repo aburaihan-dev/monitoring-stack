@@ -1,0 +1,111 @@
+{
+  "id": null,
+  "uid": "loki-docker-logs",
+  "title": "Docker Container Logs",
+  "description": "All Docker container logs auto-discovered by Alloy via Docker socket",
+  "tags": ["loki", "logs", "docker", "containers"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "templating": {
+    "list": [
+      {
+        "name": "container",
+        "label": "Container",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "query": "label_values({job=\"containerlogs\"}, container)",
+        "current": {},
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Container Logs — $container",
+      "type": "logs",
+      "gridPos": { "h": 20, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "expr": "{job=\"containerlogs\", container=~\"$container\"}",
+          "refId": "A",
+          "legendFormat": "{{container}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Log Volume by Container",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 20 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (container) (rate({job=\"containerlogs\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{container}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Error & Warning Log Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 27 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2 },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "error" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "warn" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "sum(rate({job=\"containerlogs\"} |~ \"(?i)error\"[5m]))",
+          "refId": "A",
+          "legendFormat": "error"
+        },
+        {
+          "expr": "sum(rate({job=\"containerlogs\"} |~ \"(?i)warn\"[5m]))",
+          "refId": "B",
+          "legendFormat": "warn"
+        }
+      ]
+    }
+  ]
+}
