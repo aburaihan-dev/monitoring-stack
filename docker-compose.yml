@@ -53,6 +53,7 @@ services:
     image: grafana/grafana:${GRAFANA_VERSION:-13.0.1}
     container_name: grafana
     restart: unless-stopped
+    user: "0"
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
