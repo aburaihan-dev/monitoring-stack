@@ -271,6 +271,8 @@ services:
     container_name: cadvisor
     restart: unless-stopped
     privileged: true
+    entrypoint: ["/usr/bin/cadvisor"]
+    command: ["-logtostderr"]
     devices:
       - /dev/kmsg:/dev/kmsg
     volumes:
@@ -287,6 +289,12 @@ services:
     mem_reservation: 128m
     labels: *monitoring-labels
     logging: *default-logging
+    healthcheck:
+      test: ["CMD", "/usr/bin/cadvisor", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   blackbox-exporter:
     image: prom/blackbox-exporter:${BLACKBOX_VERSION:-v0.28.0}
