@@ -318,12 +318,10 @@ services:
     image: dxflrs/garage:${GARAGE_VERSION:-v2.3.0}
     container_name: garage
     restart: unless-stopped
-    entrypoint: ["/bin/sh", "/scripts/garage-entrypoint.sh"]
-    environment:
-      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET}
-      - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN}
+    entrypoint: ["/garage"]
+    command: ["-c", "/etc/garage/garage.toml", "server"]
     volumes:
-      - ./scripts/garage-entrypoint.sh:/scripts/garage-entrypoint.sh:ro
+      - ./configs/garage/garage.toml:/etc/garage/garage.toml:ro
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
     expose:

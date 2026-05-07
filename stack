@@ -148,6 +148,7 @@ cmd_init() {
 
   cmd_cert
   cmd_auth
+  _garage_render_config
   cmd_up
 }
 
@@ -277,6 +278,7 @@ cmd_secrets() {
   read -rp "  Continue? [y/N]: " confirm
   [[ "${confirm,,}" == "y" ]] || { info "Aborted."; exit 0; }
   _env_generate_secrets
+  _garage_render_config
   warn "Restart required — run:  ./stack recreate garage && ./stack recreate garage-init && ./stack recreate alloy"
 }
 
@@ -555,8 +557,45 @@ cmd_pull() {
   cd "${SCRIPT_DIR}" && ${COMPOSE} pull
 }
 
+# Render garage.toml from .env values — called before any stack start
+# Avoids mounting a shell script into a shell-less garage container.
+_garage_render_config() {
+  require_env
+  local out="${SCRIPT_DIR}/configs/garage/garage.toml"
+  local rpc_secret admin_token
+  rpc_secret="$(env_val GARAGE_RPC_SECRET)"
+  admin_token="$(env_val GARAGE_ADMIN_TOKEN)"
+  [[ -n "${rpc_secret}"  ]] || die "GARAGE_RPC_SECRET not set in .env — run: ./stack init"
+  [[ -n "${admin_token}" ]] || die "GARAGE_ADMIN_TOKEN not set in .env — run: ./stack init"
+
+  mkdir -p "${SCRIPT_DIR}/configs/garage"
+  cat > "${out}" <<TOML
+metadata_dir = "/var/lib/garage/meta"
+data_dir     = "/var/lib/garage/data"
+db_engine    = "lmdb"
+
+# Single-node: no replication. For multi-node HA, change to "2" or "3".
+replication_factor = 1
+
+rpc_bind_addr   = "[::]:3901"
+rpc_public_addr = "garage:3901"
+rpc_secret      = "${rpc_secret}"
+
+[s3_api]
+s3_region     = "garage"
+api_bind_addr = "[::]:3900"
+root_domain   = ".s3.garage"
+
+[admin]
+api_bind_addr = "[::]:3903"
+admin_token   = "${admin_token}"
+TOML
+  ok "configs/garage/garage.toml rendered"
+}
+
 cmd_up() {
   require_env
+  _garage_render_config
   info "Starting all services…"
   cd "${SCRIPT_DIR}" && ${COMPOSE} up -d
   echo
