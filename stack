@@ -545,11 +545,38 @@ cmd_cert_renew() {
 }
 
 cmd_auth() {
-  local user
+  local user pass creds_file
+  creds_file="${SCRIPT_DIR}/configs/nginx/.auth-credentials"
+
+  echo
   read -rp "  nginx basic-auth username [admin]: " user
   user="${user:-admin}"
-  htpasswd -c "${SCRIPT_DIR}/configs/nginx/.htpasswd" "${user}"
-  ok "configs/nginx/.htpasswd created for user '${user}'"
+
+  echo
+  read -rp "  Auto-generate password and save to file? [Y/n]: " auto_gen
+
+  if [[ "${auto_gen,,}" != "n" ]]; then
+    pass="$(openssl rand -base64 18 | tr -d '=+/\\' | head -c 20)"
+
+    # -B = bcrypt (secure), -b = batch (non-interactive password from args)
+    htpasswd -B -b -c "${SCRIPT_DIR}/configs/nginx/.htpasswd" "${user}" "${pass}"
+
+    printf "# Nginx Basic Auth Credentials\n# Generated: %s\nUsername: %s\nPassword: %s\n" \
+      "$(date -u '+%Y-%m-%d %H:%M UTC')" "${user}" "${pass}" > "${creds_file}"
+    chmod 600 "${creds_file}"
+
+    echo
+    ok ".htpasswd created (bcrypt)"
+    ok "Credentials saved → configs/nginx/.auth-credentials"
+    echo
+    echo -e "  ${BOLD}Username:${RESET} ${user}"
+    echo -e "  ${BOLD}Password:${RESET} ${CYAN}${pass}${RESET}"
+    echo -e "  ${DIM}(stored in configs/nginx/.auth-credentials — never committed)${RESET}"
+  else
+    htpasswd -c "${SCRIPT_DIR}/configs/nginx/.htpasswd" "${user}"
+    ok "configs/nginx/.htpasswd created for user '${user}'"
+  fi
+  echo
 }
 
 cmd_pull() {

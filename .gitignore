@@ -2,6 +2,7 @@
 configs/nginx/ssl/cert.pem
 configs/nginx/ssl/key.pem
 configs/nginx/.htpasswd
+configs/nginx/.auth-credentials
 .certbot-domain
 configs/garage/garage.toml
 
