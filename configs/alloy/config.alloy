@@ -244,3 +244,64 @@ loki.source.api "push" {
   }
   forward_to = [loki.write.loki.receiver]
 }
+
+// ─── Syslog Receiver (for OpenWrt and other network devices) ─────────────────
+// OpenWrt: set log_ip to this host in /etc/config/system
+loki.source.syslog "network_devices" {
+  listener {
+    address  = "0.0.0.0:514"
+    protocol = "udp"
+    labels   = {job = "syslog-udp"}
+  }
+  listener {
+    address  = "0.0.0.0:514"
+    protocol = "tcp"
+    labels   = {job = "syslog-tcp"}
+  }
+  forward_to = [loki.process.syslog_router.receiver]
+  relabel_rules = loki.relabel.syslog_devices.rules
+}
+
+loki.relabel "syslog_devices" {
+  rule {
+    source_labels = ["__syslog_message_hostname"]
+    target_label  = "host"
+  }
+  rule {
+    source_labels = ["__syslog_message_app_name"]
+    target_label  = "app"
+  }
+  rule {
+    source_labels = ["__syslog_message_severity"]
+    target_label  = "severity"
+  }
+  forward_to = []
+}
+
+loki.process "syslog_router" {
+  stage.static_labels {
+    values = {
+      source = "network-device",
+    }
+  }
+  stage.match {
+    selector = "{host=\"OpenWrt\"}"
+    stage.static_labels {
+      values = {
+        job  = "openwrt",
+        host = "openwrt-router",
+      }
+    }
+  }
+  forward_to = [loki.write.loki.receiver]
+}
+
+// ─── Prometheus Scrape: OpenWrt Router ───────────────────────────────────────
+// Requires prometheus-node-exporter-lua on the router (port 9100)
+prometheus.scrape "openwrt" {
+  targets = [{"__address__" = env("OPENWRT_IP") + ":9100"}]
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "30s"
+  job_name        = "openwrt"
+  metrics_path    = "/metrics"
+}

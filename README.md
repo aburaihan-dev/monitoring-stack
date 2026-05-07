@@ -18,8 +18,9 @@
 8. [CLI Reference](#cli-reference)
 9. [Retention & Storage](#retention--storage)
 10. [Directory Structure](#directory-structure)
-11. [Production Hardening](#production-hardening)
-12. [Troubleshooting](#troubleshooting)
+11. [OpenWrt Router Monitoring](#openwrt-router-monitoring)
+12. [Production Hardening](#production-hardening)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -410,6 +411,108 @@ monitoring-stack/
     ├── garage-init.py          # Creates buckets + keys via Garage v2 admin API
     ├── gen-htpasswd.sh
     └── gen-selfsigned-cert.sh
+```
+
+---
+
+## OpenWrt Router Monitoring
+
+Full observability for your OpenWrt router: CPU, memory, network interfaces, NAT connections, WiFi stations, and syslog forwarding — all visible in Grafana.
+
+### Dashboards provisioned
+
+| Dashboard | UID | Panels | Description |
+|---|---|---|---|
+| OpenWrt Router | `openwrt-router` | 32 | CPU, memory, filesystem, network, load |
+| OpenWrt WiFi & Clients | `openwrt-wifi` | 8 | WiFi stations, signal strength, TX/RX rate, NAT |
+
+### 1 — Configure the router IP
+
+Edit `.env` and set your router's actual IP:
+
+```bash
+OPENWRT_IP=192.168.31.31   # change to your router IP
+```
+
+Then recreate Alloy to pick up the new env var:
+
+```bash
+./stack recreate alloy
+```
+
+### 2 — Install packages on OpenWrt
+
+SSH into your router and run:
+
+```bash
+opkg update
+opkg install \
+  prometheus-node-exporter-lua \
+  prometheus-node-exporter-lua-nat_traffic \
+  prometheus-node-exporter-lua-netstat \
+  prometheus-node-exporter-lua-openwrt \
+  prometheus-node-exporter-lua-wifi \
+  prometheus-node-exporter-lua-wifi_stations \
+  prometheus-node-exporter-lua-uci_config \
+  prometheus-node-exporter-lua-conntrack
+```
+
+Start and enable the exporter:
+
+```bash
+/etc/init.d/prometheus-node-exporter-lua enable
+/etc/init.d/prometheus-node-exporter-lua start
+```
+
+Verify it works:
+
+```bash
+curl http://192.168.31.31:9100/metrics | head -20
+```
+
+### 3 — Forward syslog to Alloy
+
+Edit `/etc/config/system` on the router (or use LuCI → System → System → Logging):
+
+```uci
+config system
+    option log_ip    <monitoring-host-ip>
+    option log_port  514
+    option log_proto udp
+```
+
+Apply the change:
+
+```bash
+/etc/init.d/log restart
+```
+
+> Replace `<monitoring-host-ip>` with the IP of the machine running this stack.
+> Port 514 UDP is exposed by the Alloy container.
+
+### 4 — Open the dashboards in Grafana
+
+Navigate to **Dashboards → Monitoring Stack**:
+
+- **OpenWrt Router** — system overview (CPU, memory, interfaces, load)
+- **OpenWrt WiFi & Clients** — per-station signal, TX/RX rate, NAT count, syslog
+
+### Firewall note
+
+Allow the monitoring host to reach the router's metrics port, and allow the router to send syslog to the monitoring host:
+
+```bash
+# On router (OpenWrt)
+uci set firewall.openwrt_metrics=rule
+uci set firewall.openwrt_metrics.name='Allow metrics scrape'
+uci set firewall.openwrt_metrics.src='lan'
+uci set firewall.openwrt_metrics.dest_port='9100'
+uci set firewall.openwrt_metrics.target='ACCEPT'
+uci commit firewall
+/etc/init.d/firewall restart
+
+# On monitoring host — allow syslog UDP inbound on port 514
+ufw allow 514/udp
 ```
 
 ---

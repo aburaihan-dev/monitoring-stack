@@ -61,6 +61,7 @@ services:
       - /etc/alloy/config.alloy
     environment:
       - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN}
+      - OPENWRT_IP=${OPENWRT_IP:-192.168.31.31}
     volumes:
       - ./configs/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - alloy-data:/var/lib/alloy/data
@@ -73,6 +74,8 @@ services:
       - "4317:4317"    # OTLP gRPC
       - "4318:4318"    # OTLP HTTP
       - "3500:3500"    # Loki push
+      - "514:514/udp"  # Syslog UDP (OpenWrt + network devices)
+      - "514:514/tcp"  # Syslog TCP
     depends_on:
       mimir:
         condition: service_started

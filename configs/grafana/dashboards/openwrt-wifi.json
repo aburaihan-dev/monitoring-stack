@@ -1,0 +1,171 @@
+{
+  "uid": "openwrt-wifi",
+  "title": "OpenWrt WiFi & Clients",
+  "tags": ["openwrt", "wifi"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "job",
+        "type": "constant",
+        "query": "openwrt",
+        "label": "Job",
+        "hide": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "WiFi Stations Connected",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}]}}},
+      "targets": [
+        {
+          "expr": "count(wifi_station_signal_dbm{job=\"$job\"})",
+          "legendFormat": "Stations",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "WiFi Signal Strength by Station",
+      "type": "bargauge",
+      "gridPos": {"x": 6, "y": 0, "w": 18, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "horizontal"},
+      "fieldConfig": {"defaults": {"unit": "dBm", "min": -100, "max": 0, "thresholds": {"steps": [{"color": "red", "value": null}, {"color": "yellow", "value": -75}, {"color": "green", "value": -65}]}}},
+      "targets": [
+        {
+          "expr": "wifi_station_signal_dbm{job=\"$job\"}",
+          "legendFormat": "{{mac}} ({{ssid}})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "WiFi TX/RX Rate per Station",
+      "type": "table",
+      "gridPos": {"x": 0, "y": 8, "w": 24, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "options": {"sortBy": [{"displayName": "Signal (dBm)", "desc": true}]},
+      "targets": [
+        {
+          "expr": "wifi_station_signal_dbm{job=\"$job\"}",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "instant": true
+        },
+        {
+          "expr": "wifi_station_tx_rate_mbps{job=\"$job\"}",
+          "legendFormat": "__auto",
+          "refId": "B",
+          "instant": true
+        },
+        {
+          "expr": "wifi_station_rx_rate_mbps{job=\"$job\"}",
+          "legendFormat": "__auto",
+          "refId": "C",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Network Interface Traffic (WAN/LAN)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 16, "w": 24, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {"defaults": {"unit": "bps", "custom": {"lineWidth": 2}}},
+      "targets": [
+        {
+          "expr": "irate(node_network_receive_bytes_total{job=\"$job\", device!~\"lo|br-.*\"}[5m]) * 8",
+          "legendFormat": "RX {{device}}",
+          "refId": "A"
+        },
+        {
+          "expr": "irate(node_network_transmit_bytes_total{job=\"$job\", device!~\"lo|br-.*\"}[5m]) * 8",
+          "legendFormat": "TX {{device}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "NAT Connections",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 24, "w": 12, "h": 6},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "targets": [
+        {
+          "expr": "node_nf_conntrack_entries{job=\"$job\"}",
+          "legendFormat": "Active connections",
+          "refId": "A"
+        },
+        {
+          "expr": "node_nf_conntrack_entries_limit{job=\"$job\"}",
+          "legendFormat": "Max connections",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Memory Usage",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 24, "w": 12, "h": 6},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}},
+      "targets": [
+        {
+          "expr": "node_memory_MemTotal_bytes{job=\"$job\"} - node_memory_MemAvailable_bytes{job=\"$job\"}",
+          "legendFormat": "Used",
+          "refId": "A"
+        },
+        {
+          "expr": "node_memory_MemAvailable_bytes{job=\"$job\"}",
+          "legendFormat": "Available",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "CPU Usage",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 30, "w": 12, "h": 6},
+      "datasource": {"type": "prometheus", "uid": "mimir"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "max": 1}},
+      "targets": [
+        {
+          "expr": "1 - avg(rate(node_cpu_seconds_total{job=\"$job\", mode=\"idle\"}[5m]))",
+          "legendFormat": "CPU Used",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Router Logs (OpenWrt Syslog)",
+      "type": "logs",
+      "gridPos": {"x": 0, "y": 36, "w": 24, "h": 10},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "options": {"dedupStrategy": "none", "showTime": true, "wrapLogMessage": true},
+      "targets": [
+        {
+          "expr": "{job=\"openwrt\"} |= ``",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+groups:
+  - name: openwrt.rules
+    interval: 1m
+    rules:
+
+      # ── Recording Rules ──────────────────────────────────────────────────
+      - record: job:openwrt_cpu_utilisation:rate5m
+        expr: >
+          1 - avg without(cpu, mode)(
+            rate(node_cpu_seconds_total{job="openwrt", mode="idle"}[5m])
+          )
+
+      - record: job:openwrt_memory_utilisation:ratio
+        expr: >
+          1 - (
+            node_memory_MemAvailable_bytes{job="openwrt"} /
+            node_memory_MemTotal_bytes{job="openwrt"}
+          )
+
+      # ── Availability ─────────────────────────────────────────────────────
+      - alert: OpenWrtDown
+        expr: up{job="openwrt"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          device: router
+        annotations:
+          summary: "OpenWrt router is unreachable"
+          description: "Metrics scrape for {{ $labels.instance }} has been failing for > 2 minutes. Router may be down or node-exporter stopped."
+
+      # ── CPU ──────────────────────────────────────────────────────────────
+      - alert: OpenWrtHighCPU
+        expr: job:openwrt_cpu_utilisation:rate5m * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          device: router
+        annotations:
+          summary: "OpenWrt CPU above 80%"
+          description: "CPU usage is {{ printf \"%.1f\" $value }}% on {{ $labels.instance }} for > 5 minutes."
+
+      - alert: OpenWrtCriticalCPU
+        expr: job:openwrt_cpu_utilisation:rate5m * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          device: router
+        annotations:
+          summary: "OpenWrt CPU critically high (>95%)"
+          description: "CPU usage is {{ printf \"%.1f\" $value }}% on {{ $labels.instance }}."
+
+      # ── Memory ───────────────────────────────────────────────────────────
+      - alert: OpenWrtHighMemory
+        expr: job:openwrt_memory_utilisation:ratio * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          device: router
+        annotations:
+          summary: "OpenWrt memory above 85%"
+          description: "Memory usage is {{ printf \"%.1f\" $value }}% on {{ $labels.instance }}."
+
+      - alert: OpenWrtCriticalMemory
+        expr: job:openwrt_memory_utilisation:ratio * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          device: router
+        annotations:
+          summary: "OpenWrt memory critically high (>95%)"
+          description: "Memory usage is {{ printf \"%.1f\" $value }}% on {{ $labels.instance }}. OOM kill risk."
+
+      # ── WAN / Network ────────────────────────────────────────────────────
+      - alert: OpenWrtWANDown
+        expr: >
+          rate(node_network_receive_bytes_total{job="openwrt", device=~"eth0|wan|pppoe.*"}[5m]) == 0
+          and
+          rate(node_network_transmit_bytes_total{job="openwrt", device=~"eth0|wan|pppoe.*"}[5m]) == 0
+        for: 3m
+        labels:
+          severity: critical
+          device: router
+        annotations:
+          summary: "OpenWrt WAN interface appears down"
+          description: "No traffic on WAN interface {{ $labels.device }} for > 3 minutes."
+
+      # ── NAT Connections ──────────────────────────────────────────────────
+      - alert: OpenWrtConntrackNearLimit
+        expr: >
+          node_nf_conntrack_entries{job="openwrt"} /
+          node_nf_conntrack_entries_limit{job="openwrt"} * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          device: router
+        annotations:
+          summary: "OpenWrt conntrack table >80% full"
+          description: "{{ printf \"%.1f\" $value }}% of conntrack entries used on {{ $labels.instance }}. Risk of connection drops."
+
+      # ── Filesystem ───────────────────────────────────────────────────────
+      - alert: OpenWrtDiskFull
+        expr: >
+          (node_filesystem_avail_bytes{job="openwrt", fstype!~"tmpfs|overlay"}
+          / node_filesystem_size_bytes{job="openwrt", fstype!~"tmpfs|overlay"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+          device: router
+        annotations:
+          summary: "OpenWrt filesystem almost full"
+          description: "Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} has < 10% free ({{ printf \"%.1f\" $value }}% remaining)."
