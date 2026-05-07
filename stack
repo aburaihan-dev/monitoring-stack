@@ -37,6 +37,50 @@ require_svc() {
   [[ -n "${1:-}" ]] || die "service name required  (e.g. ./stack ${CMD} alloy)"
 }
 
+# ── Dependency check ──────────────────────────────────────────────────────────
+check_deps() {
+  local missing=0
+
+  _check_tool() {
+    local name="${1}" test_cmd="${2}" install_hint="${3}"
+    if ! eval "${test_cmd}" &>/dev/null; then
+      warn "Missing: ${BOLD}${name}${RESET}"
+      echo -e "  ${DIM}Install: ${install_hint}${RESET}"
+      missing=$((missing + 1))
+    fi
+  }
+
+  # docker (engine)
+  _check_tool "docker" \
+    "command -v docker" \
+    "https://docs.docker.com/engine/install/  |  curl -fsSL https://get.docker.com | sh"
+
+  # docker compose v2 plugin (not standalone compose v1)
+  _check_tool "docker compose (v2)" \
+    "docker compose version" \
+    "Included with Docker Desktop; on Linux: sudo apt install docker-compose-plugin"
+
+  # openssl — secret generation, self-signed certs, cert verification
+  _check_tool "openssl" \
+    "command -v openssl" \
+    "sudo apt install openssl  |  sudo dnf install openssl  |  brew install openssl"
+
+  # htpasswd — nginx basic-auth (apache2-utils / httpd-tools)
+  _check_tool "htpasswd" \
+    "command -v htpasswd" \
+    "sudo apt install apache2-utils  |  sudo dnf install httpd-tools  |  brew install httpd"
+
+  # python3 — rule linting (validate / rules-check)
+  _check_tool "python3" \
+    "command -v python3" \
+    "sudo apt install python3  |  sudo dnf install python3  |  brew install python3"
+
+  if [[ "${missing}" -gt 0 ]]; then
+    echo
+    die "${missing} required tool(s) missing — install them then re-run ./stack"
+  fi
+}
+
 # ── Banner ────────────────────────────────────────────────────────────────────
 banner() {
   echo -e "${BOLD}"
@@ -658,6 +702,8 @@ cmd_validate() {
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 CMD="${1:-help}"
 shift || true
+
+[[ "${CMD}" == "help" || "${CMD}" == "--help" || "${CMD}" == "-h" ]] || check_deps
 
 case "${CMD}" in
   help|--help|-h)   usage ;;
