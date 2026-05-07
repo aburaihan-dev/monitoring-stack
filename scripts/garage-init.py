@@ -42,11 +42,19 @@ def api(method, path, body=None):
 
 
 def wait_for_garage(retries=60, delay=3):
-    print("Waiting for Garage admin API...", flush=True)
+    """
+    Poll until the Garage daemon is reachable.
+    Uses /metrics (unauthenticated, returns 200 immediately on startup)
+    instead of /health, which returns 503 until the cluster layout is
+    configured — creating a chicken-and-egg deadlock.
+    """
+    print("Waiting for Garage daemon...", flush=True)
+    url = f"{ADMIN_URL}/metrics"
+    req = urllib.request.Request(url, method="GET")
     for _ in range(retries):
         try:
-            api("GET", "/health")
-            return
+            with urllib.request.urlopen(req, timeout=5):
+                return  # any 2xx → daemon is up
         except Exception:
             time.sleep(delay)
     sys.exit("ERROR: Garage did not become healthy after waiting.")
