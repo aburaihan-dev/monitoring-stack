@@ -442,7 +442,24 @@ Then recreate Alloy to pick up the new env var:
 
 ### 2 — Install packages on OpenWrt
 
-SSH into your router and run:
+> **OpenWrt 25.12+** replaced `opkg` with `apk` (Alpine Package Keeper). Use the commands for your version below.
+
+**OpenWrt 25.12+ (apk)**
+
+```bash
+apk update
+apk add \
+  prometheus-node-exporter-lua \
+  prometheus-node-exporter-lua-nat_traffic \
+  prometheus-node-exporter-lua-netstat \
+  prometheus-node-exporter-lua-openwrt \
+  prometheus-node-exporter-lua-wifi \
+  prometheus-node-exporter-lua-wifi_stations \
+  prometheus-node-exporter-lua-uci_config \
+  prometheus-node-exporter-lua-conntrack
+```
+
+**OpenWrt 23.05 / 24.x (opkg)**
 
 ```bash
 opkg update
