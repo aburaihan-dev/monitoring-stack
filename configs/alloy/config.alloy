@@ -145,7 +145,7 @@ prometheus.scrape "garage_self" {
   metrics_path = "/metrics"
   authorization {
     type        = "Bearer"
-    credentials = env("GARAGE_ADMIN_TOKEN")
+    credentials = sys.env("GARAGE_ADMIN_TOKEN")
   }
 }
 
@@ -299,7 +299,7 @@ loki.process "syslog_router" {
 // ─── Prometheus Scrape: OpenWrt Router ───────────────────────────────────────
 // Requires prometheus-node-exporter-lua on the router (port 9100)
 prometheus.scrape "openwrt" {
-  targets = [{"__address__" = env("OPENWRT_IP") + ":9100"}]
+  targets = [{"__address__" = sys.env("OPENWRT_IP") + ":9100"}]
   forward_to      = [prometheus.remote_write.mimir.receiver]
   scrape_interval = "30s"
   job_name        = "openwrt"
