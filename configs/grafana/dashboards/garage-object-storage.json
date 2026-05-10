@@ -229,7 +229,7 @@
   "templating": {"list": []},
   "time": {"from": "now-3h", "to": "now"},
   "timepicker": {},
-  "timezone": "browser",
+  "timezone": "Asia/Dhaka",
   "title": "Garage — Object Storage",
   "uid": "garage-storage",
   "version": 1

@@ -4,7 +4,7 @@
   "title": "Docker Container Logs",
   "description": "All Docker container logs auto-discovered by Alloy via Docker socket",
   "tags": ["loki", "logs", "docker", "containers"],
-  "timezone": "browser",
+  "timezone": "Asia/Dhaka",
   "schemaVersion": 38,
   "version": 1,
   "refresh": "30s",

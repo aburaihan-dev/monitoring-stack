@@ -213,12 +213,24 @@ loki.source.docker "containers" {
 }
 
 // ─── Host Log Files ──────────────────────────────────────────────────────────
+// Cross-distro file targets. Missing files are ignored automatically.
 local.file_match "host_logs" {
   path_targets = [
-    {__path__ = "/var/log/syslog",     job = "syslog",  host = "monitoring-host"},
-    {__path__ = "/var/log/auth.log",   job = "auth",    host = "monitoring-host"},
-    {__path__ = "/var/log/kern.log",   job = "kernel",  host = "monitoring-host"},
-    {__path__ = "/var/log/dpkg.log",   job = "dpkg",    host = "monitoring-host"},
+    // Syslog-style (Debian/Ubuntu) and messages-style (RHEL/Oracle/CentOS)
+    {__path__ = "/var/log/syslog",    job = "syslog", host = "monitoring-host"},
+    {__path__ = "/var/log/messages",  job = "syslog", host = "monitoring-host"},
+
+    // Authentication logs
+    {__path__ = "/var/log/auth.log",  job = "auth",   host = "monitoring-host"},
+    {__path__ = "/var/log/secure",    job = "auth",   host = "monitoring-host"},
+
+    // Kernel logs
+    {__path__ = "/var/log/kern.log",  job = "kernel", host = "monitoring-host"},
+    {__path__ = "/var/log/dmesg",     job = "kernel", host = "monitoring-host"},
+
+    // Optional distro-specific host logs
+    {__path__ = "/var/log/boot.log",         job = "syslog", host = "monitoring-host"},
+    {__path__ = "/var/log/audit/audit.log",  job = "auth",   host = "monitoring-host"},
   ]
 }
 

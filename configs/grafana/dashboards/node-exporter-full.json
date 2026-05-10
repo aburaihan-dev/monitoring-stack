@@ -15527,7 +15527,7 @@
     "to": "now"
   },
   "timepicker": {},
-  "timezone": "browser",
+  "timezone": "Asia/Dhaka",
   "title": "Node Exporter Full",
   "uid": "node-exporter-full",
   "version": 101,

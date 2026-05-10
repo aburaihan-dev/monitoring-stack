@@ -4,7 +4,7 @@
   "title": "Host Logs",
   "description": "System logs from the host machine: syslog, auth, kernel, systemd journal",
   "tags": ["loki", "logs", "host"],
-  "timezone": "browser",
+  "timezone": "Asia/Dhaka",
   "schemaVersion": 38,
   "version": 1,
   "refresh": "30s",
