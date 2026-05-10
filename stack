@@ -15,10 +15,6 @@ COMPOSE="docker compose"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 
-# ── ACME endpoints ────────────────────────────────────────────────────────────
-LETSENCRYPT_URL="https://acme-v02.api.letsencrypt.org/directory"
-ZEROSSL_URL="https://acme.zerossl.com/v2/DV90"
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 info()  { echo -e "${CYAN}▶${RESET}  $*"; }
 ok()    { echo -e "${GREEN}✔${RESET}  $*"; }
@@ -65,11 +61,6 @@ check_deps() {
     "command -v openssl" \
     "sudo apt install openssl  |  sudo dnf install openssl  |  brew install openssl"
 
-  # htpasswd — nginx basic-auth (apache2-utils / httpd-tools)
-  _check_tool "htpasswd" \
-    "command -v htpasswd" \
-    "sudo apt install apache2-utils  |  sudo dnf install httpd-tools  |  brew install httpd"
-
   # python3 — rule linting (validate / rules-check)
   _check_tool "python3" \
     "command -v python3" \
@@ -96,11 +87,8 @@ usage() {
   echo -e "${BOLD}Usage:${RESET}  ./stack <command> [service]"
   echo
   echo -e "${BOLD}Setup${RESET}"
-  printf "  ${CYAN}%-22s${RESET} %s\n" "init"            "First-run wizard: domain, secrets, SSL, htpasswd, then up"
+  printf "  ${CYAN}%-22s${RESET} %s\n" "init"            "First-run wizard: admin user, secrets, notifications, then up"
   printf "  ${CYAN}%-22s${RESET} %s\n" "secrets"         "Rotate all generated secrets in .env (with restart guidance)"
-  printf "  ${CYAN}%-22s${RESET} %s\n" "cert"            "Set up TLS — self-signed, existing, Let's Encrypt, or ZeroSSL"
-  printf "  ${CYAN}%-22s${RESET} %s\n" "cert-renew"      "Renew ACME cert (Let's Encrypt / ZeroSSL) and reload nginx"
-  printf "  ${CYAN}%-22s${RESET} %s\n" "auth"            "Create configs/nginx/.htpasswd (prompts for username/password)"
   printf "  ${CYAN}%-22s${RESET} %s\n" "pull"            "Pull latest images for all services"
   echo
   echo -e "${BOLD}Lifecycle${RESET}"
@@ -119,16 +107,12 @@ usage() {
   printf "  ${CYAN}%-22s${RESET} %s\n" "open"            "Open Grafana in the default browser"
   printf "  ${CYAN}%-22s${RESET} %s\n" "urls"            "Print all service URLs"
   echo
-  echo -e "${BOLD}Nginx${RESET}"
-  printf "  ${CYAN}%-22s${RESET} %s\n" "nginx-reload"    "Reload nginx config without downtime"
-  printf "  ${CYAN}%-22s${RESET} %s\n" "nginx-test"      "Test nginx config for syntax errors"
-  echo
   echo -e "${BOLD}Validation${RESET}"
   printf "  ${CYAN}%-22s${RESET} %s\n" "validate"        "Validate compose YAML + all rule files"
   printf "  ${CYAN}%-22s${RESET} %s\n" "rules-check"     "Lint alert rule YAML files"
   echo
-  echo -e "${DIM}Services: nginx grafana alloy mimir loki tempo alertmanager"
-  echo -e "          node-exporter cadvisor blackbox-exporter garage redis${RESET}"
+  echo -e "${DIM}Services: grafana alloy mimir loki tempo alertmanager"
+  echo -e "          node-exporter cadvisor blackbox-exporter garage valkey uar${RESET}"
   echo
 }
 
@@ -147,8 +131,6 @@ cmd_init() {
     [[ "${reconf,,}" == "y" ]] && _env_setup
   fi
 
-  cmd_cert
-  cmd_auth
   _garage_render_config
   cmd_up
 }
@@ -168,13 +150,6 @@ _env_setup() {
   echo
   echo -e "${BOLD}  Stack Configuration${RESET}"
   echo
-
-  # Domain
-  local domain
-  read -rp "  Base domain [monitoring.local]: " domain
-  domain="${domain:-monitoring.local}"
-  _env_set BASE_DOMAIN "${domain}"
-  ok "BASE_DOMAIN=${domain}"
 
   # Grafana admin user
   local gf_user
@@ -283,302 +258,6 @@ cmd_secrets() {
   warn "Restart required — run:  ./stack recreate garage && ./stack recreate garage-init && ./stack recreate alloy"
 }
 
-cmd_cert() {
-  require_env
-  local domain ssl_dir choice
-  domain="$(env_val BASE_DOMAIN)"
-  [[ -n "${domain}" ]] || die "BASE_DOMAIN not set in .env"
-  ssl_dir="${SCRIPT_DIR}/configs/nginx/ssl"
-  mkdir -p "${ssl_dir}"
-
-  echo
-  echo -e "${BOLD}  SSL Certificate Setup${RESET}"
-  echo -e "  ${DIM}Domain: *.${domain}     Target: ${ssl_dir}${RESET}"
-  echo
-  echo -e "  ${CYAN}1)${RESET} Self-signed         ${DIM}(dev/testing — browser security warning)${RESET}"
-  echo -e "  ${CYAN}2)${RESET} Existing cert       ${DIM}(paste paths to your cert + key files)${RESET}"
-  echo -e "  ${CYAN}3)${RESET} Let's Encrypt       ${DIM}(free, browser-trusted, auto-renew — requires public domain)${RESET}"
-  echo -e "  ${CYAN}4)${RESET} ZeroSSL             ${DIM}(free, ACME v2 alternative CA — requires public domain + EAB)${RESET}"
-  echo
-  read -rp "  Choose [1-4]: " choice
-
-  case "${choice}" in
-    1|"") _cert_self_signed  "${ssl_dir}" "${domain}" ;;
-    2)    _cert_use_existing "${ssl_dir}" "${domain}" ;;
-    3)    _cert_acme "${LETSENCRYPT_URL}" "Let's Encrypt" "${ssl_dir}" "${domain}" ;;
-    4)    _cert_acme "${ZEROSSL_URL}"     "ZeroSSL"       "${ssl_dir}" "${domain}" ;;
-    *)    die "Invalid choice '${choice}' — enter 1, 2, 3, or 4" ;;
-  esac
-}
-
-_cert_self_signed() {
-  local ssl_dir="${1}" domain="${2}"
-  info "Generating self-signed TLS cert for *.${domain}…"
-  openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-    -keyout "${ssl_dir}/key.pem" \
-    -out    "${ssl_dir}/cert.pem" \
-    -subj   "/CN=${domain}" \
-    -addext "subjectAltName=DNS:*.${domain},DNS:localhost" \
-    2>/dev/null
-  ok "Self-signed cert written to configs/nginx/ssl/"
-  warn "Self-signed — browsers will show a security warning. Replace with a real cert for production."
-}
-
-_cert_use_existing() {
-  local ssl_dir="${1}" domain="${2}"
-  local cert_src key_src
-
-  echo
-  echo -e "  ${DIM}Provide full paths to your existing certificate files.${RESET}"
-  echo -e "  ${DIM}Wildcard cert (*.${domain}) recommended — single-domain cert also works.${RESET}"
-  echo
-
-  while true; do
-    read -rp "  Path to certificate file (fullchain.pem / cert.crt): " cert_src
-    [[ -f "${cert_src}" ]] && break
-    warn "'${cert_src}' not found — try again"
-  done
-
-  while true; do
-    read -rp "  Path to private key file  (privkey.pem  / cert.key): " key_src
-    [[ -f "${key_src}" ]] && break
-    warn "'${key_src}' not found — try again"
-  done
-
-  cp "${cert_src}" "${ssl_dir}/cert.pem"
-  cp "${key_src}"  "${ssl_dir}/key.pem"
-  chmod 600 "${ssl_dir}/key.pem"
-  ok "Certificate copied → configs/nginx/ssl/cert.pem"
-  ok "Private key copied → configs/nginx/ssl/key.pem"
-  _cert_verify_pair "${ssl_dir}"
-  _cert_show_expiry "${ssl_dir}"
-}
-
-_cert_acme() {
-  local ca_url="${1}" ca_name="${2}" ssl_dir="${3}" domain="${4}"
-  local email challenge
-
-  if ! command -v certbot &>/dev/null; then
-    echo
-    warn "certbot is not installed."
-    echo -e "  ${DIM}Ubuntu/Debian:  sudo apt install certbot${RESET}"
-    echo -e "  ${DIM}RHEL/Fedora:    sudo dnf install certbot${RESET}"
-    echo -e "  ${DIM}macOS:          brew install certbot${RESET}"
-    echo
-    die "Install certbot then run:  ./stack cert"
-  fi
-
-  info "CA: ${ca_name}"
-  echo
-  read -rp "  Email address (expiry notices + CA account): " email
-  [[ -n "${email}" ]] || die "Email is required for ACME registration"
-
-  # ZeroSSL requires External Account Binding credentials
-  local eab_args=()
-  if [[ "${ca_url}" != "${LETSENCRYPT_URL}" ]]; then
-    echo
-    echo -e "  ${BOLD}ZeroSSL External Account Binding (EAB)${RESET}"
-    echo -e "  ${DIM}Get credentials at: https://app.zerossl.com → Developer → EAB Credentials${RESET}"
-    echo
-    local eab_kid eab_hmac
-    read -rp "  EAB Key ID:   " eab_kid
-    read -rp "  EAB HMAC Key: " eab_hmac
-    [[ -n "${eab_kid}" && -n "${eab_hmac}" ]] || die "EAB credentials are required for ZeroSSL"
-    eab_args=(--eab-kid "${eab_kid}" --eab-hmac-key "${eab_hmac}")
-  fi
-
-  echo
-  echo -e "  ${BOLD}Challenge type:${RESET}"
-  echo -e "  ${CYAN}1)${RESET} HTTP-01 standalone   ${DIM}(certbot opens port 80 — nginx paused ~30 s)${RESET}"
-  echo -e "       Issues certs for each subdomain individually"
-  echo -e "  ${CYAN}2)${RESET} DNS-01 manual         ${DIM}(wildcard *.${domain} — you add one DNS TXT record)${RESET}"
-  echo -e "       Works behind firewalls; no port 80 needed"
-  echo
-  read -rp "  Choose [1/2]: " challenge
-
-  case "${challenge}" in
-    1) _cert_acme_http01 "${ca_url}" "${ca_name}" "${ssl_dir}" "${domain}" "${email}" "${eab_args[@]+"${eab_args[@]}"}" ;;
-    2) _cert_acme_dns01  "${ca_url}" "${ca_name}" "${ssl_dir}" "${domain}" "${email}" "${eab_args[@]+"${eab_args[@]}"}" ;;
-    *) die "Invalid choice" ;;
-  esac
-}
-
-_cert_acme_http01() {
-  local ca_url="${1}" ca_name="${2}" ssl_dir="${3}" domain="${4}" email="${5}"
-  shift 5; local extra_args=("$@")
-
-  local subdomains=(
-    "grafana.${domain}"
-    "alertmanager.${domain}"
-    "alloy.${domain}"
-    "ingest.${domain}"
-    "uar.${domain}"
-    "s3.${domain}"
-  )
-  local d_args=()
-  for sub in "${subdomains[@]}"; do d_args+=(-d "${sub}"); done
-
-  echo
-  warn "nginx will be stopped for ~30 s while certbot occupies port 80."
-  read -rp "  Continue? [y/N]: " confirm
-  [[ "${confirm,,}" == "y" ]] || { info "Aborted."; exit 0; }
-
-  cd "${SCRIPT_DIR}"
-  info "Stopping nginx…"
-  ${COMPOSE} stop nginx 2>/dev/null || true
-
-  info "Running certbot HTTP-01 (${ca_name}) for ${#subdomains[@]} subdomains…"
-  certbot certonly --standalone \
-    --server  "${ca_url}" \
-    --email   "${email}" \
-    --agree-tos --non-interactive \
-    "${extra_args[@]}" \
-    "${d_args[@]}"
-
-  info "Starting nginx…"
-  ${COMPOSE} start nginx 2>/dev/null || true
-
-  _cert_copy_from_certbot "${ssl_dir}" "${subdomains[0]}" "${domain}"
-}
-
-_cert_acme_dns01() {
-  local ca_url="${1}" ca_name="${2}" ssl_dir="${3}" domain="${4}" email="${5}"
-  shift 5; local extra_args=("$@")
-
-  echo
-  echo -e "  ${DIM}certbot will pause and ask you to create a DNS TXT record.${RESET}"
-  echo -e "  ${DIM}Log into your DNS provider, add the record shown, wait ~60 s for${RESET}"
-  echo -e "  ${DIM}propagation, then press Enter in this terminal to continue.${RESET}"
-  echo
-  read -rp "  Press Enter to start certbot…"
-
-  info "Running certbot DNS-01 (${ca_name}) for wildcard *.${domain}…"
-  certbot certonly --manual \
-    --preferred-challenges dns \
-    --server  "${ca_url}" \
-    --email   "${email}" \
-    --agree-tos \
-    "${extra_args[@]}" \
-    -d "*.${domain}" \
-    -d "${domain}"
-
-  _cert_copy_from_certbot "${ssl_dir}" "${domain}" "${domain}"
-}
-
-_cert_copy_from_certbot() {
-  local ssl_dir="${1}" certbot_domain="${2}" base_domain="${3}"
-  local live_dir="/etc/letsencrypt/live/${certbot_domain}"
-
-  # Fallback: certbot sometimes uses the base domain as folder name
-  [[ -d "${live_dir}" ]] || live_dir="/etc/letsencrypt/live/${base_domain}"
-  [[ -d "${live_dir}" ]] || die "certbot cert not found in /etc/letsencrypt/live/"
-
-  cp "${live_dir}/fullchain.pem" "${ssl_dir}/cert.pem"
-  cp "${live_dir}/privkey.pem"   "${ssl_dir}/key.pem"
-  chmod 600 "${ssl_dir}/key.pem"
-  ok "Certificate copied → configs/nginx/ssl/cert.pem"
-  ok "Private key copied  → configs/nginx/ssl/key.pem"
-
-  # Persist domain for cert-renew
-  echo "${certbot_domain}" > "${SCRIPT_DIR}/.certbot-domain"
-
-  _cert_verify_pair "${ssl_dir}"
-  _cert_show_expiry "${ssl_dir}"
-
-  echo
-  echo -e "  ${BOLD}Auto-renewal${RESET}  (add to crontab with:  sudo crontab -e)"
-  echo -e "  ${DIM}0 3 * * 1  cd ${SCRIPT_DIR} && ./stack cert-renew >> /var/log/stack-cert-renew.log 2>&1${RESET}"
-}
-
-_cert_verify_pair() {
-  local ssl_dir="${1}"
-  local cert_hash key_hash
-  cert_hash="$(openssl x509 -noout -modulus -in "${ssl_dir}/cert.pem" 2>/dev/null | openssl md5)"
-  key_hash="$(openssl rsa  -noout -modulus -in "${ssl_dir}/key.pem"  2>/dev/null | openssl md5)"
-  if [[ "${cert_hash}" == "${key_hash}" ]]; then
-    ok "Certificate and private key match ✔"
-  else
-    warn "Certificate and private key do NOT match — nginx will fail to start."
-    warn "Run './stack cert' again to replace them."
-  fi
-}
-
-_cert_show_expiry() {
-  local ssl_dir="${1}"
-  local expiry
-  expiry="$(openssl x509 -noout -enddate -in "${ssl_dir}/cert.pem" 2>/dev/null | cut -d= -f2)"
-  [[ -n "${expiry}" ]] && info "Certificate expires: ${expiry}"
-}
-
-cmd_cert_renew() {
-  require_env
-  local ssl_dir certbot_domain
-  ssl_dir="${SCRIPT_DIR}/configs/nginx/ssl"
-
-  [[ -f "${SCRIPT_DIR}/.certbot-domain" ]] || \
-    die "No certbot domain on record. Run './stack cert' (option 3 or 4) first."
-
-  certbot_domain="$(cat "${SCRIPT_DIR}/.certbot-domain")"
-  info "Renewing certificate for ${certbot_domain}…"
-
-  cd "${SCRIPT_DIR}"
-  ${COMPOSE} stop nginx 2>/dev/null || true
-
-  # Try standalone renew first, fall back to generic renew (e.g. DNS-01 certs)
-  if ! certbot renew --standalone --non-interactive --cert-name "${certbot_domain}" 2>/dev/null; then
-    certbot renew --non-interactive --cert-name "${certbot_domain}"
-  fi
-
-  ${COMPOSE} start nginx 2>/dev/null || true
-
-  local live_dir="/etc/letsencrypt/live/${certbot_domain}"
-  if [[ -d "${live_dir}" ]]; then
-    cp "${live_dir}/fullchain.pem" "${ssl_dir}/cert.pem"
-    cp "${live_dir}/privkey.pem"   "${ssl_dir}/key.pem"
-    chmod 600 "${ssl_dir}/key.pem"
-    ok "Renewed cert copied to configs/nginx/ssl/"
-    _cert_show_expiry "${ssl_dir}"
-    cmd_nginx_reload
-  else
-    warn "certbot may have skipped renewal — cert is likely still valid (>30 days remaining)"
-  fi
-}
-
-cmd_auth() {
-  local user pass creds_file
-  creds_file="${SCRIPT_DIR}/configs/nginx/.auth-credentials"
-
-  echo
-  read -rp "  nginx basic-auth username [admin]: " user
-  user="${user:-admin}"
-
-  echo
-  read -rp "  Auto-generate password and save to file? [Y/n]: " auto_gen
-
-  if [[ "${auto_gen,,}" != "n" ]]; then
-    pass="$(openssl rand -base64 18 | tr -d '=+/\\' | head -c 20)"
-
-    # -B = bcrypt (secure), -b = batch (non-interactive password from args)
-    htpasswd -B -b -c "${SCRIPT_DIR}/configs/nginx/.htpasswd" "${user}" "${pass}"
-
-    printf "# Nginx Basic Auth Credentials\n# Generated: %s\nUsername: %s\nPassword: %s\n" \
-      "$(date -u '+%Y-%m-%d %H:%M UTC')" "${user}" "${pass}" > "${creds_file}"
-    chmod 600 "${creds_file}"
-
-    echo
-    ok ".htpasswd created (bcrypt)"
-    ok "Credentials saved → configs/nginx/.auth-credentials"
-    echo
-    echo -e "  ${BOLD}Username:${RESET} ${user}"
-    echo -e "  ${BOLD}Password:${RESET} ${CYAN}${pass}${RESET}"
-    echo -e "  ${DIM}(stored in configs/nginx/.auth-credentials — never committed)${RESET}"
-  else
-    htpasswd -c "${SCRIPT_DIR}/configs/nginx/.htpasswd" "${user}"
-    ok "configs/nginx/.htpasswd created for user '${user}'"
-  fi
-  echo
-}
-
 cmd_pull() {
   require_env
   info "Pulling latest images…"
@@ -676,9 +355,8 @@ cmd_reset() {
   echo -e "  This will:"
   echo -e "  ${DIM}  • Stop all containers and delete all volumes (Loki/Mimir/Tempo/Garage data)${RESET}"
   echo -e "  ${DIM}  • Remove configs/garage/garage.toml${RESET}"
-  echo -e "  ${DIM}  • Remove configs/nginx/.htpasswd and configs/nginx/ssl/ (TLS certs)${RESET}"
   echo -e "  ${DIM}  • Optionally wipe .env and generate fresh secrets${RESET}"
-  echo -e "  ${DIM}  • Re-run the full setup wizard (domain, secrets, cert, auth, start)${RESET}"
+  echo -e "  ${DIM}  • Re-run the full setup wizard (admin, secrets, notifications, start)${RESET}"
   echo
   read -rp "  Type 'RESET' (uppercase) to confirm: " confirm
   [[ "${confirm}" == "RESET" ]] || { info "Aborted."; exit 0; }
@@ -690,10 +368,7 @@ cmd_reset() {
 
   info "2/3  Removing generated config files…"
   rm -f  "${SCRIPT_DIR}/configs/garage/garage.toml"
-  rm -f  "${SCRIPT_DIR}/configs/nginx/.htpasswd"
-  rm -rf "${SCRIPT_DIR}/configs/nginx/ssl"
-  rm -f  "${SCRIPT_DIR}/.certbot-domain"
-  ok "Generated configs cleared (garage.toml, htpasswd, ssl/)"
+  ok "Generated configs cleared (garage.toml)"
 
   echo
   read -rp "  Wipe .env and start with fresh secrets? [Y/n]: " wipe_env
@@ -744,40 +419,22 @@ cmd_exec() {
 
 cmd_open() {
   require_env
-  local domain
-  domain="$(env_val BASE_DOMAIN)"
-  local url="https://grafana.${domain}"
+  local url="http://localhost:3000"
   info "Opening ${url}…"
   xdg-open "${url}" 2>/dev/null || open "${url}" 2>/dev/null || \
     warn "Could not open browser automatically — visit: ${url}"
 }
 
 cmd_urls() {
-  require_env
-  local domain
-  domain="$(env_val BASE_DOMAIN)"
   echo
   echo -e "${BOLD}  Service URLs${RESET}"
-  printf "  ${CYAN}%-18s${RESET} %s\n" "Grafana"      "https://grafana.${domain}"
-  printf "  ${CYAN}%-18s${RESET} %s\n" "Alertmanager" "https://alertmanager.${domain}"
-  printf "  ${CYAN}%-18s${RESET} %s\n" "Alloy UI"     "https://alloy.${domain}"
-  printf "  ${CYAN}%-18s${RESET} %s\n" "OTLP HTTP"    "https://ingest.${domain}/otlp"
-  printf "  ${CYAN}%-18s${RESET} %s\n" "Garage S3"    "https://s3.${domain}"
-  printf "  ${CYAN}%-18s${RESET} %s\n" "UAR"          "https://uar.${domain}"
+  printf "  ${CYAN}%-18s${RESET} %s\n" "Grafana"      "http://localhost:3000"
+  printf "  ${CYAN}%-18s${RESET} %s\n" "Alertmanager" "http://localhost:9093"
+  printf "  ${CYAN}%-18s${RESET} %s\n" "Alloy UI"     "http://localhost:12345"
+  printf "  ${CYAN}%-18s${RESET} %s\n" "OTLP gRPC"    "localhost:4317"
+  printf "  ${CYAN}%-18s${RESET} %s\n" "OTLP HTTP"    "http://localhost:4318"
+  printf "  ${CYAN}%-18s${RESET} %s\n" "Loki Push"    "http://localhost:3500/loki/api/v1/push"
   echo
-}
-
-cmd_nginx_reload() {
-  require_env
-  info "Reloading nginx config…"
-  cd "${SCRIPT_DIR}" && ${COMPOSE} exec nginx nginx -s reload
-  ok "nginx reloaded"
-}
-
-cmd_nginx_test() {
-  require_env
-  info "Testing nginx config…"
-  cd "${SCRIPT_DIR}" && ${COMPOSE} exec nginx nginx -t
 }
 
 cmd_rules_check() {
@@ -825,9 +482,6 @@ case "${CMD}" in
   help|--help|-h)   usage ;;
   init)             cmd_init ;;
   secrets)          cmd_secrets ;;
-  cert)             cmd_cert ;;
-  cert-renew)       cmd_cert_renew ;;
-  auth)             cmd_auth ;;
   pull)             cmd_pull ;;
   up)               cmd_up ;;
   down)             cmd_down ;;
@@ -841,8 +495,6 @@ case "${CMD}" in
   exec)             cmd_exec "${@}" ;;
   open)             cmd_open ;;
   urls)             cmd_urls ;;
-  nginx-reload)     cmd_nginx_reload ;;
-  nginx-test)       cmd_nginx_test ;;
   rules-check)      cmd_rules_check ;;
   validate)         cmd_validate ;;
   *)                die "Unknown command '${CMD}' — run:  ./stack help" ;;

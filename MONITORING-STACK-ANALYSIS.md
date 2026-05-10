@@ -255,7 +255,7 @@ so Loki, Tempo, and Mimir write to durable block storage instead of ephemeral lo
 │                                                                             │
 │  Auth      Grafana admin credentials via .env (not anonymous)              │
 │  Secrets   All passwords in .env file (gitignored)                         │
-│  TLS       Reverse proxy (Traefik / Nginx) terminates HTTPS                │
+│  TLS       Reverse proxy (Traefik / Caddy) terminates HTTPS                │
 │  Alloy     Protected with Traefik basicAuth middleware                      │
 │  Network   Internal services NOT exposed on host ports                     │
 │  MinIO     Root credentials via env vars, bucket policies per service      │

@@ -27,11 +27,21 @@ receivers:
     webhook_configs:
       - url: "http://uar:8080/api/v1/alerts"
         send_resolved: true
+    # Microsoft Teams (optional):
+    # Add your Teams Incoming Webhook URL below.
+    # webhook_configs:
+    #   - url: "https://outlook.office.com/webhook/REPLACE/WITH/YOUR/URL"
+    #     send_resolved: true
 
   - name: "critical"
     webhook_configs:
       - url: "http://uar:8080/api/v1/alerts"
         send_resolved: true
+    # Microsoft Teams (optional):
+    # Add your Teams Incoming Webhook URL below.
+    # webhook_configs:
+    #   - url: "https://outlook.office.com/webhook/REPLACE/WITH/YOUR/URL"
+    #     send_resolved: true
     # Uncomment and configure for Slack:
     # slack_configs:
     #   - api_url: "${SLACK_WEBHOOK_URL}"

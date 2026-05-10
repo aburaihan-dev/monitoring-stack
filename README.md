@@ -51,7 +51,6 @@ The wizard walks through every step interactively:
 
 | Step | What happens |
 |------|-------------|
-| **Domain** | Enter your `BASE_DOMAIN` (used in Grafana root URL and alert links) |
 | **Admin user** | Enter Grafana admin username (default: `admin`) |
 | **Auto-generate secrets** | Generates and writes all passwords/keys to `.env`, then displays them once |
 | **Notifications** | Optionally configure Slack webhook and/or email (SMTP) |
@@ -137,7 +136,7 @@ Open `http://<HOST_IP>:3000` → log in with your `GRAFANA_ADMIN_USER` / `GRAFAN
 
 > Alloy, Grafana, and Alertmanager are exposed directly on host ports.
 > All storage and source services are **Docker-network-only**.
-> To add TLS/auth in front, place your own reverse proxy (Caddy, Traefik, nginx)
+> To add TLS/auth in front, place your own reverse proxy (Caddy or Traefik)
 > in front and expose only that proxy externally.
 ---
 
@@ -169,7 +168,6 @@ If you ever need to rotate secrets on a running stack:
 
 | Variable | Description |
 |----------|-------------|
-| `BASE_DOMAIN` | Your domain — prompted interactively by `./stack init` |
 | `GRAFANA_ADMIN_USER` | Grafana admin username — prompted interactively |
 | `SLACK_WEBHOOK_URL` | Slack incoming webhook — prompted optionally during init |
 | `ALERT_EMAIL_FROM/TO` | Alert email addresses — prompted optionally during init |
@@ -224,14 +222,14 @@ networks:
 
 ### From an external host or application
 
-Use the HTTPS ingest endpoints via Nginx:
+Use the direct host ingest endpoints:
 
 ```
-OTLP gRPC:    (TLS termination at nginx — use HTTP endpoint instead)
-OTLP HTTP:    https://ingest.<BASE_DOMAIN>/v1/traces
-              https://ingest.<BASE_DOMAIN>/v1/metrics
-              https://ingest.<BASE_DOMAIN>/v1/logs
-Loki push:    https://ingest.<BASE_DOMAIN>/loki/api/v1/push
+OTLP gRPC:    localhost:4317
+OTLP HTTP:    http://localhost:4318/v1/traces
+              http://localhost:4318/v1/metrics
+              http://localhost:4318/v1/logs
+Loki push:    http://localhost:3500/loki/api/v1/push
 ```
 
 ### SDK quick-reference
@@ -314,7 +312,6 @@ directly on their host ports. To add HTTPS and authentication:
 |--------|-------------|
 | **Caddy** (recommended) | `caddy reverse-proxy --from grafana.yourdomain.com --to :3000` |
 | **Traefik** | Add a `traefik` service to `docker-compose.yml` with label-based routing |
-| **nginx** | Mount a custom `nginx.conf` and map port 443 to the services |
 
 > 🔒 **Firewall tip:** Allow only your reverse proxy port (443) from the internet.
 > Block direct access to :3000, :9093, :12345 etc. with `ufw deny <port>`.
@@ -383,12 +380,6 @@ monitoring-stack/
 ├── docker-compose.yml
 ├── .env.example                # Copy to .env before running
 ├── configs/
-│   ├── nginx/
-│   │   ├── nginx.conf
-│   │   ├── snippets/           # proxy-headers, ssl-params, security-headers, basic-auth
-│   │   ├── templates/          # per-subdomain .conf.template (processed by nginx envsubst)
-│   │   ├── ssl/                # cert.pem + key.pem  (gitignored)
-│   │   └── .htpasswd           # (gitignored)
 │   ├── alloy/config.alloy      # Unified collection pipeline
 │   ├── loki/config.yml
 │   ├── tempo/config.yml
@@ -407,9 +398,7 @@ monitoring-stack/
 │       └── dashboards/         # Drop .json dashboard files here — auto-provisioned
 └── scripts/
     ├── garage-entrypoint.sh    # Generates garage.toml from env vars
-    ├── garage-init.py          # Creates buckets + keys via Garage v2 admin API
-    ├── gen-htpasswd.sh
-    └── gen-selfsigned-cert.sh
+    └── garage-init.py          # Creates buckets + keys via Garage v2 admin API
 ```
 
 ---
@@ -418,13 +407,16 @@ monitoring-stack/
 
 ### Firewall
 
-Only expose port 443 (and 80 for ACME redirect) to the internet.
-All service ports (3000, 9009, 3100, 3200, etc.) must be **blocked** at the firewall.
+Expose only the ports you actually need from trusted networks.
+Storage/backend ports (9009, 3100, 3200, etc.) should be **blocked** from public internet.
 
 ```bash
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw deny 3000/tcp   # Grafana — behind nginx
+ufw allow 3000/tcp   # Grafana
+ufw allow 9093/tcp   # Alertmanager
+ufw allow 12345/tcp  # Alloy UI
+ufw allow 4317/tcp   # OTLP gRPC
+ufw allow 4318/tcp   # OTLP HTTP
+ufw allow 3500/tcp   # Loki push API
 ufw deny 9009/tcp   # Mimir   — backend only
 # … repeat for all internal ports
 ```
