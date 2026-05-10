@@ -1,0 +1,35 @@
+# Ensure shell scripts and configs always use LF line endings
+# regardless of the OS they are committed from
+
+# Default: normalize all text files
+* text=auto
+
+# Shell scripts — always LF
+*.sh        text eol=lf
+stack       text eol=lf
+
+# Python
+*.py        text eol=lf
+
+# Config files
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.conf      text eol=lf
+*.toml      text eol=lf
+*.alloy     text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.template  text eol=lf
+
+# Windows-specific files (if any)
+*.bat       text eol=crlf
+*.ps1       text eol=crlf
+
+# Binary files — no conversion
+*.pem       binary
+*.key       binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
