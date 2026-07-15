@@ -252,10 +252,40 @@ loki.source.journal "system" {
 }
 
 // ─── Loki Push API (for agents that push directly) ──────────────────────────
+// Loki's push API has no way to capture the client's source IP as a label —
+// it only sees whatever labels/body the client sends. Instead, this stage
+// promotes the "MachineName" field (present in the sample .NET/Serilog logs)
+// to a "machine_name" label automatically, so logs from different app
+// servers can be filtered/grouped without any app-side label configuration.
+//
+// Log lines look like: "2026-07-15 15:47:53.737 warn {"Message":...}" — a
+// timestamp/level prefix followed by a JSON object, not pure JSON — so the
+// JSON body is extracted with a regex first, then parsed.
+loki.process "app_push" {
+  forward_to = [loki.write.loki.receiver]
+
+  stage.regex {
+    expression = "^(?P<ts>\\S+ \\S+) (?P<lvl>\\w+) (?P<json_body>\\{.*\\})$"
+  }
+
+  stage.json {
+    source = "json_body"
+    expressions = {
+      MachineName = "",
+    }
+  }
+
+  stage.labels {
+    values = {
+      machine_name = "MachineName",
+    }
+  }
+}
+
 loki.source.api "push" {
   http {
     listen_address = "0.0.0.0"
     listen_port    = 3500
   }
-  forward_to = [loki.write.loki.receiver]
+  forward_to = [loki.process.app_push.receiver]
 }
