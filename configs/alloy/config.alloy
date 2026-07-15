@@ -172,9 +172,9 @@ prometheus.scrape "blackbox_http" {
     },
     {
       "__address__"  = "blackbox-exporter:9115",
-      "__param_target" = "http://garage:3903/health",
-      "__param_module" = "http_2xx",
-      "instance"     = "garage",
+      "__param_target" = env("OBJECT_STORAGE_ENDPOINT"),
+      "__param_module" = "tcp_connect",
+      "instance"     = "object-storage",
       "job"          = "blackbox",
     },
   ]

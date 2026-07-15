@@ -62,6 +62,7 @@ services:
       - /etc/alloy/config.alloy
     environment:
       - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN}
+      - OBJECT_STORAGE_ENDPOINT=${OBJECT_STORAGE_ENDPOINT}
     volumes:
       - ./configs/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - alloy-data:/var/lib/alloy/data
@@ -335,10 +336,14 @@ services:
     profiles: ["seaweedfs"]
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - "weed server -dir=/data -master.raftHashicorp=false -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -ip=seaweedfs"
+      - "weed server -dir=/data -volume.max=0 -master.volumeSizeLimitMB=1024 -volume.preStopSeconds=1 -master.raftHashicorp=false -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -ip=seaweedfs"
     volumes:
       - ./configs/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
       - seaweedfs-data:/data
+    ports:
+      - "127.0.0.1:8888:8888"   # SeaweedFS filer UI / admin API
+      - "127.0.0.1:9333:9333"   # SeaweedFS master UI / cluster status
+      - "127.0.0.1:${SEAWEEDFS_VOLUME_UI_PORT:-18080}:8080"   # SeaweedFS volume server UI / node status
     expose:
       - "8333"   # S3 API (internal — used by Loki, Tempo, Mimir)
       - "8888"   # Filer HTTP (internal — used by storage-init to create buckets)
@@ -350,7 +355,7 @@ services:
     labels: *monitoring-labels
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8888/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8888/buckets/"]
       interval: 10s
       timeout: 5s
       retries: 10
