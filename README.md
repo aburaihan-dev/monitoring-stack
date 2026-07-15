@@ -121,23 +121,25 @@ Open `http://<HOST_IP>:3000` → log in with your `GRAFANA_ADMIN_USER` / `GRAFAN
 
 | Service | Image | Version | Host port | Notes |
 |---------|-------|---------|-----------|-------|
-| Grafana | `grafana/grafana` | 13.0.1 | **:3000** | Admin UI |
-| Grafana Alloy | `grafana/alloy` | v1.16.1 | **:12345** UI · **:4317** gRPC · **:4318** HTTP · **:3500** Loki | Unified collector |
-| Alertmanager | `prom/alertmanager` | v0.32.1 | **:9093** | Alert routing |
+| Grafana | `grafana/grafana` | 13.1.0 | **:3000** | Admin UI |
+| Grafana Alloy | `grafana/alloy` | v1.17.1 | **:12345** UI · **:4317** gRPC · **:4318** HTTP · **:3500** Loki | Unified collector |
+| Alertmanager | `prom/alertmanager` | v0.33.1 | **:9093** | Alert routing |
 | UAR | `ghcr.io/jamesread/uncomplicated-alert-receiver` | latest | internal | Alert inbox UI |
-| Mimir | `grafana/mimir` | 3.0.6 | internal | Metrics storage (90 d) |
-| Loki | `grafana/loki` | 3.7.1 | internal | Log storage (30 d) |
-| Tempo | `grafana/tempo` | 2.10.5 | internal | Trace storage (14 d) |
-| Garage | `dxflrs/garage` | v2.3.0 | internal | S3-compatible object store |
-| Valkey | `valkey/valkey` | 9.0.4-alpine3.23 | internal | Query result cache |
-| node-exporter | `prom/node-exporter` | v1.11.1 | internal | Host metrics |
-| cAdvisor | `ghcr.io/google/cadvisor` | 0.56.2 | internal | Container metrics |
+| Mimir | `grafana/mimir` | 3.1.2 | internal | Metrics storage (90 d) |
+| Loki | `grafana/loki` | 3.7.3 | internal | Log storage (30 d) |
+| Tempo | `grafana/tempo` | 3.0.2 | internal | Trace storage (14 d) |
+| Garage | `dxflrs/garage` | v2.3.0 | internal | S3-compatible object store — default backend |
+| SeaweedFS (alternative) | `chrislusf/seaweedfs` | 4.39 | internal | S3-compatible object store — only runs in `seaweedfs` storage mode |
+| Valkey | `valkey/valkey` | 9.1.0-alpine3.23 | internal | Query result cache |
+| node-exporter | `prom/node-exporter` | v1.12.1 | internal | Host metrics |
+| cAdvisor | `ghcr.io/google/cadvisor` | 0.60.5 | internal | Container metrics |
 | Blackbox Exporter | `prom/blackbox-exporter` | v0.28.0 | internal | Synthetic probes |
+| nginx (optional) | `nginx` | 1.29-alpine | **:80**/**:443** | Reverse proxy — only runs in `http`/`ssl` proxy mode |
 
 > Alloy, Grafana, and Alertmanager are exposed directly on host ports.
 > All storage and source services are **Docker-network-only**.
-> To add TLS/auth in front, place your own reverse proxy (Caddy or Traefik)
-> in front and expose only that proxy externally.
+> Use the built-in nginx proxy (`./stack proxy http|ssl`) for a quick front door,
+> or bring your own (Caddy/Traefik) — see [Reverse Proxy & TLS](#reverse-proxy--tls-optional).
 ---
 
 ## Configuration Reference
@@ -162,7 +164,7 @@ If you ever need to rotate secrets on a running stack:
 ./stack secrets    # generates new values and prints restart instructions
 ```
 
-> ⚠️ Rotating Garage keys requires re-running `garage-init`. The `secrets` command reminds you of the exact commands.
+> ⚠️ Rotating Garage/SeaweedFS keys requires re-running `storage-init`. The `secrets` command reminds you of the exact commands.
 
 ### What you must set manually
 
@@ -305,13 +307,30 @@ Edit `configs/alertmanager/config.yml` to wire up:
 
 ## Reverse Proxy & TLS (optional)
 
-This stack does **not** include a built-in reverse proxy. Services are accessible
-directly on their host ports. To add HTTPS and authentication:
+A built-in nginx proxy in front of Grafana is one command away:
 
-| Option | Quick start |
-|--------|-------------|
-| **Caddy** (recommended) | `caddy reverse-proxy --from grafana.yourdomain.com --to :3000` |
-| **Traefik** | Add a `traefik` service to `docker-compose.yml` with label-based routing |
+| Command | Result |
+|---------|--------|
+| `./stack proxy none` | Default — Grafana stays on host port 3000 directly |
+| `./stack proxy http` | nginx reverse-proxies Grafana on **:80**, no TLS |
+| `./stack proxy ssl`  | nginx terminates HTTPS on **:443** using **your existing cert** |
+
+For `ssl` mode, place your certificate first:
+
+```bash
+cp /path/to/fullchain.pem configs/nginx/ssl/fullchain.pem
+cp /path/to/privkey.pem   configs/nginx/ssl/privkey.pem
+./stack proxy ssl
+./stack up
+```
+
+`./stack init` also asks for this choice on first run. Switching modes rewrites
+`configs/nginx/nginx.conf` and toggles the `proxy` compose profile — run
+`./stack up` (or `./stack recreate nginx`) afterwards to apply.
+
+Need more than Grafana behind TLS, or automated cert issuance (Let's Encrypt)?
+Use your own **Caddy** or **Traefik** in front instead — the built-in nginx
+proxy is intentionally just a one-service, existing-cert front door.
 
 > 🔒 **Firewall tip:** Allow only your reverse proxy port (443) from the internet.
 > Block direct access to :3000, :9093, :12345 etc. with `ufw deny <port>`.
@@ -322,6 +341,8 @@ directly on their host ports. To add HTTPS and authentication:
 
 | Command | Description |
 |---------|-------------|
+| `./stack proxy <none\|http\|ssl>` | Set deploy mode (no proxy / nginx no-SSL / nginx with existing SSL) |
+| `./stack storage <garage\|seaweedfs>` | Set object storage backend |
 | `./stack up` | Start all services (detached) |
 | `./stack down` | Stop all (volumes retained) |
 | `./stack restart <svc>` | Restart one service |
@@ -360,15 +381,28 @@ directly on their host ports. To add HTTPS and authentication:
 | Loki (logs) | 30 days | `LOKI_RETENTION_PERIOD` |
 | Tempo (traces) | 14 days | `TEMPO_RETENTION_PERIOD` |
 
-All three backends store data in **Garage** (S3-compatible, MIT-licensed). Buckets:
+### Object storage backend
 
-| Bucket | Contents |
-|--------|----------|
-| `loki-data` | Log chunks + index |
-| `tempo-data` | Trace blocks |
-| `mimir-data` | Metric blocks, ruler state |
+Mimir, Loki, and Tempo all write to one S3-compatible backend, chosen with:
 
-Buckets are created automatically by `garage-init` on first startup.
+```bash
+./stack storage <garage|seaweedfs>
+./stack up
+```
+
+| Backend | License | Notes |
+|---------|---------|-------|
+| **Garage** (default) | AGPLv3 | Lightweight, geo-distribution-first. Recommended for single-node/edge. |
+| **SeaweedFS** | Apache 2.0 | Broader S3 feature coverage (versioning, richer ACLs). Recommended if you need closer-to-AWS S3 semantics. |
+
+> MinIO isn't offered here — its Community Edition is no longer actively
+> maintained for new self-hosted deployments, which is why this stack ships
+> with Garage and SeaweedFS instead.
+
+Only one backend runs at a time (`./stack storage` toggles a compose profile);
+switching keeps the other backend's volume on disk but idle. Buckets
+(`loki`, `tempo`, `mimir`) are created automatically by the `storage-init`
+container on first startup, regardless of which backend is active.
 
 ---
 
@@ -386,6 +420,13 @@ monitoring-stack/
 │   ├── mimir/config.yml
 │   ├── alertmanager/config.yml
 │   ├── blackbox/config.yml
+│   ├── nginx/
+│   │   ├── nginx-http.conf     # Template used by ./stack proxy http
+│   │   ├── nginx-ssl.conf      # Template used by ./stack proxy ssl
+│   │   ├── nginx.conf          # Generated — active config (gitignored)
+│   │   └── ssl/                # Place existing fullchain.pem + privkey.pem here
+│   ├── seaweedfs/
+│   │   └── s3.json             # Generated — S3 gateway identity (gitignored)
 │   ├── rules/                  # Alert & recording rules — auto-loaded by Mimir
 │   │   ├── node-rules.yml
 │   │   ├── container-rules.yml
@@ -398,7 +439,7 @@ monitoring-stack/
 │       └── dashboards/         # Drop .json dashboard files here — auto-provisioned
 └── scripts/
     ├── garage-entrypoint.sh    # Generates garage.toml from env vars
-    └── garage-init.py          # Creates buckets + keys via Garage v2 admin API
+    └── storage-init.py         # Creates buckets — Garage admin API or SeaweedFS filer API
 ```
 
 ---
@@ -456,8 +497,8 @@ Add a cron job (or systemd timer) to renew and reload:
 
 ```bash
 ./stack status            # which containers are unhealthy?
-./stack logs garage       # common cause: bad GARAGE_* env vars
-./stack logs garage-init  # check bucket creation
+./stack logs garage       # (or: seaweedfs) common cause: bad *_ACCESS_KEY_ID/SECRET env vars
+./stack logs storage-init # check bucket creation
 ./stack logs mimir        # rules loading errors appear here
 ```
 ### Grafana "Bad Gateway" or service unreachable
@@ -474,8 +515,8 @@ Add a cron job (or systemd timer) to renew and reload:
 
 ### Garage metrics not appearing
 
-Alloy uses a Bearer token to scrape Garage. Verify `GARAGE_ADMIN_TOKEN` in `.env` matches
-the value used during `garage-init`. Re-run if changed:
+Only relevant when `OBJECT_STORAGE=garage`. Alloy uses a Bearer token to scrape Garage. Verify `GARAGE_ADMIN_TOKEN` in `.env` matches
+the value used during `storage-init`. Re-run if changed:
 
 ```bash
 ./stack recreate garage

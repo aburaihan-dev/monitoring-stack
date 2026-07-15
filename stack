@@ -91,6 +91,12 @@ usage() {
   printf "  ${CYAN}%-22s${RESET} %s\n" "secrets"         "Rotate all generated secrets in .env (with restart guidance)"
   printf "  ${CYAN}%-22s${RESET} %s\n" "pull"            "Pull latest images for all services"
   echo
+  echo -e "${BOLD}Reverse Proxy${RESET}"
+  printf "  ${CYAN}%-22s${RESET} %s\n" "proxy <mode>"    "Set deploy mode: none | http (no SSL) | ssl (existing cert)"
+  echo
+  echo -e "${BOLD}Object Storage${RESET}"
+  printf "  ${CYAN}%-22s${RESET} %s\n" "storage <backend>" "Set backend: garage | seaweedfs"
+  echo
   echo -e "${BOLD}Lifecycle${RESET}"
   printf "  ${CYAN}%-22s${RESET} %s\n" "up"              "Start all services (detached)"
   printf "  ${CYAN}%-22s${RESET} %s\n" "down"            "Stop all services (keeps volumes)"
@@ -112,7 +118,7 @@ usage() {
   printf "  ${CYAN}%-22s${RESET} %s\n" "rules-check"     "Lint alert rule YAML files"
   echo
   echo -e "${DIM}Services: grafana alloy mimir loki tempo alertmanager"
-  echo -e "          node-exporter cadvisor blackbox-exporter garage valkey uar${RESET}"
+  echo -e "          node-exporter cadvisor blackbox-exporter garage seaweedfs valkey uar nginx${RESET}"
   echo
 }
 
@@ -131,7 +137,7 @@ cmd_init() {
     [[ "${reconf,,}" == "y" ]] && _env_setup
   fi
 
-  _garage_render_config
+  _storage_render_config
   cmd_up
 }
 
@@ -160,15 +166,27 @@ _env_setup() {
 
   # Auto-generate secrets
   echo
-  read -rp "  Auto-generate all secrets? (Grafana password, Garage keys) [Y/n]: " gen
+  read -rp "  Auto-generate all secrets? (Grafana password, Garage + SeaweedFS keys) [Y/n]: " gen
   if [[ "${gen,,}" != "n" ]]; then
     _env_generate_secrets
   else
     echo
     warn "Secrets NOT generated — edit .env manually before starting the stack."
     warn "Keys to change: GRAFANA_ADMIN_PASSWORD, GARAGE_RPC_SECRET,"
-    warn "                GARAGE_ADMIN_TOKEN, GARAGE_ACCESS_KEY_ID, GARAGE_SECRET_ACCESS_KEY"
+    warn "                GARAGE_ADMIN_TOKEN, GARAGE_ACCESS_KEY_ID, GARAGE_SECRET_ACCESS_KEY,"
+    warn "                SEAWEEDFS_ACCESS_KEY_ID, SEAWEEDFS_SECRET_ACCESS_KEY"
   fi
+
+  # Object storage backend
+  echo
+  echo -e "  ${BOLD}Object Storage${RESET}"
+  echo -e "  ${DIM}[1] Garage — lightweight, geo-distribution-first (default)"
+  echo -e "  [2] SeaweedFS — broader S3 feature coverage${RESET}"
+  read -rp "  Choice [1]: " storage_choice
+  case "${storage_choice}" in
+    2) cmd_storage seaweedfs ;;
+    *) cmd_storage garage ;;
+  esac
 
   # Notifications
   echo
@@ -178,6 +196,19 @@ _env_setup() {
   else
     info "Skipping — edit .env later to configure Slack/email alerts."
   fi
+
+  # Reverse proxy
+  echo
+  echo -e "  ${BOLD}Reverse Proxy${RESET}"
+  echo -e "  ${DIM}[1] None — direct host ports (default)"
+  echo -e "  [2] nginx, no SSL"
+  echo -e "  [3] nginx, existing SSL cert${RESET}"
+  read -rp "  Choice [1]: " proxy_choice
+  case "${proxy_choice}" in
+    2) cmd_proxy http ;;
+    3) cmd_proxy ssl ;;
+    *) cmd_proxy none ;;
+  esac
   echo
 }
 
@@ -185,18 +216,22 @@ _env_generate_secrets() {
   echo
   info "Generating secrets…"
 
-  local gf_pass garage_rpc garage_token garage_key_id garage_secret
+  local gf_pass garage_rpc garage_token garage_key_id garage_secret sw_key sw_secret
   gf_pass="$(    openssl rand -base64 18 | tr -d '=+/\\'  | head -c 24)"
   garage_rpc="$( openssl rand -hex 32)"
   garage_token="$(openssl rand -hex 16)"
   garage_key_id="GK$(openssl rand -hex 14)"
   garage_secret="$(openssl rand -hex 32)"
+  sw_key="SW$(openssl rand -hex 14)"
+  sw_secret="$(openssl rand -hex 32)"
 
   _env_set GRAFANA_ADMIN_PASSWORD   "${gf_pass}"
   _env_set GARAGE_RPC_SECRET        "${garage_rpc}"
   _env_set GARAGE_ADMIN_TOKEN       "${garage_token}"
   _env_set GARAGE_ACCESS_KEY_ID     "${garage_key_id}"
   _env_set GARAGE_SECRET_ACCESS_KEY "${garage_secret}"
+  _env_set SEAWEEDFS_ACCESS_KEY_ID     "${sw_key}"
+  _env_set SEAWEEDFS_SECRET_ACCESS_KEY "${sw_secret}"
 
   echo
   echo -e "  ${BOLD}Generated secrets — copy these to a password manager now:${RESET}"
@@ -206,6 +241,8 @@ _env_generate_secrets() {
   printf "  ${CYAN}%-28s${RESET} %s\n" "GARAGE_ADMIN_TOKEN"       "${garage_token}"
   printf "  ${CYAN}%-28s${RESET} %s\n" "GARAGE_ACCESS_KEY_ID"     "${garage_key_id}"
   printf "  ${CYAN}%-28s${RESET} %s\n" "GARAGE_SECRET_ACCESS_KEY" "${garage_secret}"
+  printf "  ${CYAN}%-28s${RESET} %s\n" "SEAWEEDFS_ACCESS_KEY_ID"     "${sw_key}"
+  printf "  ${CYAN}%-28s${RESET} %s\n" "SEAWEEDFS_SECRET_ACCESS_KEY" "${sw_secret}"
   echo
   warn ".env is gitignored — back it up securely and never commit it."
 }
@@ -247,15 +284,17 @@ cmd_secrets() {
   require_env
   echo
   echo -e "${BOLD}  Secret Rotation${RESET}"
-  echo -e "  ${DIM}This replaces Grafana password and all Garage keys in .env.${RESET}"
-  echo -e "  ${YELLOW}⚠${RESET}  After rotation you must re-run garage-init and restart the stack:"
-  echo -e "  ${DIM}./stack recreate garage && ./stack recreate garage-init && ./stack recreate alloy${RESET}"
+  echo -e "  ${DIM}This replaces Grafana password and all Garage + SeaweedFS keys in .env.${RESET}"
+  echo -e "  ${YELLOW}⚠${RESET}  After rotation you must re-run storage-init and restart the stack:"
+  echo -e "  ${DIM}./stack recreate storage-init && ./stack recreate alloy${RESET}"
   echo
   read -rp "  Continue? [y/N]: " confirm
   [[ "${confirm,,}" == "y" ]] || { info "Aborted."; exit 0; }
   _env_generate_secrets
-  _garage_render_config
-  warn "Restart required — run:  ./stack recreate garage && ./stack recreate garage-init && ./stack recreate alloy"
+  # Re-sync the generic OBJECT_STORAGE_* copies to the freshly rotated keys
+  # of whichever backend is currently active, and re-render its config file.
+  cmd_storage "$(env_val OBJECT_STORAGE)"
+  warn "Restart required — run:  ./stack recreate garage seaweedfs storage-init alloy"
 }
 
 cmd_pull() {
@@ -307,9 +346,122 @@ TOML
   ok "configs/garage/garage.toml rendered"
 }
 
+# Render the SeaweedFS S3 gateway identity file from .env values.
+_seaweedfs_render_config() {
+  require_env
+  local out="${SCRIPT_DIR}/configs/seaweedfs/s3.json"
+  local access_key secret_key
+  access_key="$(env_val SEAWEEDFS_ACCESS_KEY_ID)"
+  secret_key="$(env_val SEAWEEDFS_SECRET_ACCESS_KEY)"
+  [[ -n "${access_key}" ]] || die "SEAWEEDFS_ACCESS_KEY_ID not set in .env — run: ./stack init"
+  [[ -n "${secret_key}" ]] || die "SEAWEEDFS_SECRET_ACCESS_KEY not set in .env — run: ./stack init"
+
+  mkdir -p "${SCRIPT_DIR}/configs/seaweedfs"
+  cat > "${out}" <<JSON
+{
+  "identities": [
+    {
+      "name": "monitoring-stack",
+      "credentials": [
+        {"accessKey": "${access_key}", "secretKey": "${secret_key}"}
+      ],
+      "actions": ["Admin", "Read", "Write"]
+    }
+  ]
+}
+JSON
+  ok "configs/seaweedfs/s3.json rendered"
+}
+
+# Render whichever backend's config is currently active — called before any
+# stack start, mirroring the old unconditional _garage_render_config call.
+_storage_render_config() {
+  case "$(env_val OBJECT_STORAGE)" in
+    seaweedfs) _seaweedfs_render_config ;;
+    *)         _garage_render_config ;;
+  esac
+}
+
+# Recompute COMPOSE_PROFILES from the currently active storage backend and
+# proxy mode — this is what actually turns garage/seaweedfs/nginx on or off.
+_sync_profiles() {
+  local storage proxy profiles
+  storage="$(env_val OBJECT_STORAGE)"; storage="${storage:-garage}"
+  proxy="$(env_val PROXY_MODE)"; proxy="${proxy:-none}"
+  profiles="${storage}"
+  [[ "${proxy}" != "none" ]] && profiles="${profiles},proxy"
+  _env_set COMPOSE_PROFILES "${profiles}"
+}
+
+cmd_storage() {
+  require_env
+  local mode="${1:-}"
+  case "${mode}" in
+    garage|seaweedfs) ;;
+    *) die "Usage: ./stack storage <garage|seaweedfs>" ;;
+  esac
+
+  _env_set OBJECT_STORAGE "${mode}"
+  if [[ "${mode}" == "garage" ]]; then
+    _env_set OBJECT_STORAGE_ENDPOINT          "garage:3900"
+    _env_set OBJECT_STORAGE_ACCESS_KEY_ID     "$(env_val GARAGE_ACCESS_KEY_ID)"
+    _env_set OBJECT_STORAGE_SECRET_ACCESS_KEY "$(env_val GARAGE_SECRET_ACCESS_KEY)"
+    _env_set OBJECT_STORAGE_REGION            "garage"
+    _garage_render_config
+  else
+    _env_set OBJECT_STORAGE_ENDPOINT          "seaweedfs:8333"
+    _env_set OBJECT_STORAGE_ACCESS_KEY_ID     "$(env_val SEAWEEDFS_ACCESS_KEY_ID)"
+    _env_set OBJECT_STORAGE_SECRET_ACCESS_KEY "$(env_val SEAWEEDFS_SECRET_ACCESS_KEY)"
+    _env_set OBJECT_STORAGE_REGION            "us-east-1"
+    _seaweedfs_render_config
+  fi
+
+  _sync_profiles
+  ok "Object storage: ${mode}"
+  info "Run  ./stack up  to apply — data in the other backend is left untouched but unused"
+}
+
+# Copy the selected nginx template into place — called by cmd_proxy.
+_nginx_render_config() {
+  local mode="${1}"
+  mkdir -p "${SCRIPT_DIR}/configs/nginx/ssl"
+  cp "${SCRIPT_DIR}/configs/nginx/nginx-${mode}.conf" "${SCRIPT_DIR}/configs/nginx/nginx.conf"
+}
+
+cmd_proxy() {
+  require_env
+  local mode="${1:-}"
+  case "${mode}" in
+    none|http|ssl) ;;
+    *) die "Usage: ./stack proxy <none|http|ssl>" ;;
+  esac
+
+  if [[ "${mode}" == "ssl" ]]; then
+    [[ -f "${SCRIPT_DIR}/configs/nginx/ssl/fullchain.pem" && -f "${SCRIPT_DIR}/configs/nginx/ssl/privkey.pem" ]] \
+      || die "Missing configs/nginx/ssl/fullchain.pem + privkey.pem — place your existing cert there first"
+  fi
+
+  _env_set PROXY_MODE "${mode}"
+  if [[ "${mode}" == "none" ]]; then
+    ok "Proxy mode: none — Grafana stays on host port 3000"
+  else
+    _nginx_render_config "${mode}"
+    local http_port https_port
+    http_port="$(env_val PROXY_HTTP_PORT)"; http_port="${http_port:-80}"
+    https_port="$(env_val PROXY_HTTPS_PORT)"; https_port="${https_port:-443}"
+    if [[ "${mode}" == "ssl" ]]; then
+      ok "Proxy mode: ssl — nginx will front Grafana on :${https_port} (redirect from :${http_port})"
+    else
+      ok "Proxy mode: http — nginx will front Grafana on :${http_port}"
+    fi
+  fi
+  _sync_profiles
+  info "Run  ./stack up  (or  ./stack recreate nginx)  to apply"
+}
+
 cmd_up() {
   require_env
-  _garage_render_config
+  _storage_render_config
   info "Starting all services…"
   cd "${SCRIPT_DIR}" && ${COMPOSE} up -d
   echo
@@ -343,7 +495,7 @@ cmd_clean() {
   warn "This will destroy ALL containers and volumes — data will be lost!"
   read -rp "  Type 'yes' to confirm: " confirm
   [[ "${confirm}" == "yes" ]] || { info "Aborted."; exit 0; }
-  cd "${SCRIPT_DIR}" && ${COMPOSE} down -v --remove-orphans
+  cd "${SCRIPT_DIR}" && ${COMPOSE} --profile "*" down -v --remove-orphans
   ok "Stack and all volumes removed"
   echo -e "  ${DIM}Tip: run  ./stack reset  to also wipe certs/secrets and re-run the setup wizard${RESET}"
 }
@@ -353,8 +505,8 @@ cmd_reset() {
   echo -e "${RED}${BOLD}  !! FULL RESET — ALL DATA AND CONFIGURATION WILL BE DESTROYED !!${RESET}"
   echo
   echo -e "  This will:"
-  echo -e "  ${DIM}  • Stop all containers and delete all volumes (Loki/Mimir/Tempo/Garage data)${RESET}"
-  echo -e "  ${DIM}  • Remove configs/garage/garage.toml${RESET}"
+  echo -e "  ${DIM}  • Stop all containers and delete all volumes (Loki/Mimir/Tempo/Garage/SeaweedFS data)${RESET}"
+  echo -e "  ${DIM}  • Remove configs/garage/garage.toml, configs/seaweedfs/s3.json, configs/nginx/nginx.conf${RESET}"
   echo -e "  ${DIM}  • Optionally wipe .env and generate fresh secrets${RESET}"
   echo -e "  ${DIM}  • Re-run the full setup wizard (admin, secrets, notifications, start)${RESET}"
   echo
@@ -363,12 +515,14 @@ cmd_reset() {
 
   echo
   info "1/3  Tearing down containers and volumes…"
-  cd "${SCRIPT_DIR}" && ${COMPOSE} down -v --remove-orphans 2>/dev/null || true
+  cd "${SCRIPT_DIR}" && ${COMPOSE} --profile "*" down -v --remove-orphans 2>/dev/null || true
   ok "Containers and volumes removed"
 
   info "2/3  Removing generated config files…"
   rm -f  "${SCRIPT_DIR}/configs/garage/garage.toml"
-  ok "Generated configs cleared (garage.toml)"
+  rm -f  "${SCRIPT_DIR}/configs/seaweedfs/s3.json"
+  rm -f  "${SCRIPT_DIR}/configs/nginx/nginx.conf"
+  ok "Generated configs cleared (garage.toml, s3.json, nginx.conf)"
 
   echo
   read -rp "  Wipe .env and start with fresh secrets? [Y/n]: " wipe_env
@@ -428,6 +582,15 @@ cmd_open() {
 cmd_urls() {
   echo
   echo -e "${BOLD}  Service URLs${RESET}"
+  local mode http_port https_port
+  mode="$(env_val PROXY_MODE)"
+  http_port="$(env_val PROXY_HTTP_PORT)"; http_port="${http_port:-80}"
+  https_port="$(env_val PROXY_HTTPS_PORT)"; https_port="${https_port:-443}"
+  if [[ "${mode}" == "http" ]]; then
+    printf "  ${CYAN}%-18s${RESET} %s\n" "Grafana (proxy)" "http://localhost:${http_port}"
+  elif [[ "${mode}" == "ssl" ]]; then
+    printf "  ${CYAN}%-18s${RESET} %s\n" "Grafana (proxy)" "https://localhost:${https_port}"
+  fi
   printf "  ${CYAN}%-18s${RESET} %s\n" "Grafana"      "http://localhost:3000"
   printf "  ${CYAN}%-18s${RESET} %s\n" "Alertmanager" "http://localhost:9093"
   printf "  ${CYAN}%-18s${RESET} %s\n" "Alloy UI"     "http://localhost:12345"
@@ -483,6 +646,8 @@ case "${CMD}" in
   init)             cmd_init ;;
   secrets)          cmd_secrets ;;
   pull)             cmd_pull ;;
+  proxy)            cmd_proxy "${@}" ;;
+  storage)          cmd_storage "${@}" ;;
   up)               cmd_up ;;
   down)             cmd_down ;;
   restart)          cmd_restart "${@}" ;;

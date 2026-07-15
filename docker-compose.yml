@@ -15,7 +15,7 @@ services:
 
   # ── Visualization ────────────────────────────────────────────────────────
   grafana:
-    image: grafana/grafana:${GRAFANA_VERSION:-13.0.1}
+    image: grafana/grafana:${GRAFANA_VERSION:-13.1.0}
     container_name: grafana
     restart: unless-stopped
     user: "0"
@@ -51,7 +51,7 @@ services:
 
   # ── Collection ───────────────────────────────────────────────────────────
   alloy:
-    image: grafana/alloy:${ALLOY_VERSION:-v1.16.1}
+    image: grafana/alloy:${ALLOY_VERSION:-v1.17.1}
     container_name: alloy
     restart: unless-stopped
     user: "0"
@@ -90,7 +90,7 @@ services:
 
   # ── Storage — Metrics ────────────────────────────────────────────────────
   mimir:
-    image: grafana/mimir:${MIMIR_VERSION:-3.0.6}
+    image: grafana/mimir:${MIMIR_VERSION:-3.1.2}
     container_name: mimir
     restart: unless-stopped
     user: "0"
@@ -99,8 +99,10 @@ services:
       - -config.expand-env=true
       - -server.http-listen-port=9009
     environment:
-      - GARAGE_ACCESS_KEY_ID
-      - GARAGE_SECRET_ACCESS_KEY
+      - OBJECT_STORAGE_ENDPOINT
+      - OBJECT_STORAGE_ACCESS_KEY_ID
+      - OBJECT_STORAGE_SECRET_ACCESS_KEY
+      - OBJECT_STORAGE_REGION
       - MIMIR_RETENTION_PERIOD
     volumes:
       - ./configs/mimir/config.yml:/etc/mimir/config.yml:ro
@@ -109,7 +111,7 @@ services:
     expose:
       - "9009"
     depends_on:
-      garage-init:
+      storage-init:
         condition: service_completed_successfully
     networks:
       - monitoring
@@ -124,7 +126,7 @@ services:
 
   # ── Storage — Logs ───────────────────────────────────────────────────────
   loki:
-    image: grafana/loki:${LOKI_VERSION:-3.7.1}
+    image: grafana/loki:${LOKI_VERSION:-3.7.3}
     container_name: loki
     restart: unless-stopped
     user: "0"
@@ -132,8 +134,10 @@ services:
       - -config.file=/etc/loki/config.yml
       - -config.expand-env=true
     environment:
-      - GARAGE_ACCESS_KEY_ID
-      - GARAGE_SECRET_ACCESS_KEY
+      - OBJECT_STORAGE_ENDPOINT
+      - OBJECT_STORAGE_ACCESS_KEY_ID
+      - OBJECT_STORAGE_SECRET_ACCESS_KEY
+      - OBJECT_STORAGE_REGION
       - LOKI_RETENTION_PERIOD
     volumes:
       - ./configs/loki/config.yml:/etc/loki/config.yml:ro
@@ -141,7 +145,7 @@ services:
     expose:
       - "3100"
     depends_on:
-      garage-init:
+      storage-init:
         condition: service_completed_successfully
     networks:
       - monitoring
@@ -152,7 +156,7 @@ services:
 
   # ── Storage — Traces ─────────────────────────────────────────────────────
   tempo:
-    image: grafana/tempo:${TEMPO_VERSION:-2.10.5}
+    image: grafana/tempo:${TEMPO_VERSION:-3.0.2}
     container_name: tempo
     restart: unless-stopped
     user: "0"
@@ -160,8 +164,10 @@ services:
       - -config.file=/etc/tempo/config.yml
       - -config.expand-env=true
     environment:
-      - GARAGE_ACCESS_KEY_ID
-      - GARAGE_SECRET_ACCESS_KEY
+      - OBJECT_STORAGE_ENDPOINT
+      - OBJECT_STORAGE_ACCESS_KEY_ID
+      - OBJECT_STORAGE_SECRET_ACCESS_KEY
+      - OBJECT_STORAGE_REGION
       - TEMPO_RETENTION_PERIOD
     volumes:
       - ./configs/tempo/config.yml:/etc/tempo/config.yml:ro
@@ -170,7 +176,7 @@ services:
       - "3200"   # Tempo HTTP API (queried by Grafana internally)
       - "4317"   # OTLP gRPC receiver (from Alloy internally)
     depends_on:
-      garage-init:
+      storage-init:
         condition: service_completed_successfully
     networks:
       - monitoring
@@ -181,7 +187,7 @@ services:
 
   # ── Alerting ─────────────────────────────────────────────────────────────
   alertmanager:
-    image: prom/alertmanager:${ALERTMANAGER_VERSION:-v0.32.1}
+    image: prom/alertmanager:${ALERTMANAGER_VERSION:-v0.33.1}
     container_name: alertmanager
     restart: unless-stopped
     user: "0"
@@ -223,7 +229,7 @@ services:
 
   # ── Sources ──────────────────────────────────────────────────────────────
   node-exporter:
-    image: prom/node-exporter:${NODE_EXPORTER_VERSION:-v1.11.1}
+    image: prom/node-exporter:${NODE_EXPORTER_VERSION:-v1.12.1}
     container_name: node-exporter
     restart: unless-stopped
     pid: host
@@ -246,7 +252,7 @@ services:
     logging: *default-logging
 
   cadvisor:
-    image: ghcr.io/google/cadvisor:${CADVISOR_VERSION:-0.56.2}
+    image: ghcr.io/google/cadvisor:${CADVISOR_VERSION:-0.60.5}
     container_name: cadvisor
     restart: unless-stopped
     privileged: true
@@ -292,11 +298,12 @@ services:
     labels: *monitoring-labels
     logging: *default-logging
 
-  # ── Infrastructure ───────────────────────────────────────────────────────
+  # ── Infrastructure — Object Storage (choose ONE via ./stack storage <mode>) ─
   garage:
     image: dxflrs/garage:${GARAGE_VERSION:-v2.3.0}
     container_name: garage
     restart: unless-stopped
+    profiles: ["garage"]
     entrypoint: ["/garage"]
     command: ["-c", "/etc/garage/garage.toml", "server"]
     volumes:
@@ -321,26 +328,55 @@ services:
       retries: 3
       start_period: 5s
 
-  garage-init:
+  seaweedfs:
+    image: chrislusf/seaweedfs:${SEAWEEDFS_VERSION:-4.39}
+    container_name: seaweedfs
+    restart: unless-stopped
+    profiles: ["seaweedfs"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "weed server -dir=/data -master.raftHashicorp=false -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -ip=seaweedfs"
+    volumes:
+      - ./configs/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+      - seaweedfs-data:/data
+    expose:
+      - "8333"   # S3 API (internal — used by Loki, Tempo, Mimir)
+      - "8888"   # Filer HTTP (internal — used by storage-init to create buckets)
+      - "9333"   # Master (internal)
+    networks:
+      - monitoring
+    mem_limit: 512m
+    mem_reservation: 128m
+    labels: *monitoring-labels
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8888/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # storage-init has no profile (always defined) so Mimir/Loki/Tempo can
+  # always depend on it — it polls whichever backend OBJECT_STORAGE selects
+  # rather than relying on a profile-gated compose dependency.
+  storage-init:
     image: python:3-alpine
-    container_name: garage-init
+    container_name: storage-init
     restart: "no"
-    depends_on:
-      garage:
-        condition: service_healthy
-    command: ["python3", "/scripts/garage-init.py"]
+    command: ["python3", "/scripts/storage-init.py"]
     environment:
+      - OBJECT_STORAGE=${OBJECT_STORAGE:-garage}
       - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN}
       - GARAGE_ACCESS_KEY_ID=${GARAGE_ACCESS_KEY_ID}
       - GARAGE_SECRET_ACCESS_KEY=${GARAGE_SECRET_ACCESS_KEY}
       - GARAGE_CAPACITY_GB=${GARAGE_CAPACITY_GB:-100}
     volumes:
-      - ./scripts/garage-init.py:/scripts/garage-init.py:ro
+      - ./scripts/storage-init.py:/scripts/storage-init.py:ro
     networks:
       - monitoring
 
   valkey:
-    image: valkey/valkey:${VALKEY_VERSION:-9.0.4-alpine3.23}
+    image: valkey/valkey:${VALKEY_VERSION:-9.1.0-alpine3.23}
     container_name: valkey
     restart: unless-stopped
     user: "0"
@@ -356,6 +392,34 @@ services:
     labels: *monitoring-labels
     logging: *default-logging
 
+  # ── Reverse Proxy (optional) ─────────────────────────────────────────────
+  # Only starts when PROXY_MODE is "http" or "ssl" (./stack proxy <mode>),
+  # via the "proxy" compose profile. Fronts Grafana only.
+  nginx:
+    image: nginx:${NGINX_VERSION:-1.29-alpine}
+    container_name: nginx
+    restart: unless-stopped
+    profiles: ["proxy"]
+    volumes:
+      - ./configs/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./configs/nginx/ssl:/etc/nginx/ssl:ro
+    ports:
+      - "${PROXY_HTTP_PORT:-80}:80"
+      - "${PROXY_HTTPS_PORT:-443}:443"
+    depends_on:
+      - grafana
+    networks:
+      - monitoring
+    mem_limit: 64m
+    mem_reservation: 16m
+    labels: *monitoring-labels
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 volumes:
   grafana-data: {}
   alloy-data: {}
@@ -365,6 +429,7 @@ volumes:
   alertmanager-data: {}
   garage-meta: {}
   garage-data: {}
+  seaweedfs-data: {}
   redis-data: {}
   valkey-data: {}
 

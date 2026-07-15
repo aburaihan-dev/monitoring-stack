@@ -14,12 +14,12 @@ common:
   storage:
     backend: s3
     s3:
-      endpoint:          garage:3900
+      endpoint:          ${OBJECT_STORAGE_ENDPOINT}
       bucket_name:       mimir
-      access_key_id:     ${GARAGE_ACCESS_KEY_ID}
-      secret_access_key: ${GARAGE_SECRET_ACCESS_KEY}
+      access_key_id:     ${OBJECT_STORAGE_ACCESS_KEY_ID}
+      secret_access_key: ${OBJECT_STORAGE_SECRET_ACCESS_KEY}
       insecure:          true
-      region:            garage
+      region:            ${OBJECT_STORAGE_REGION}
 
 blocks_storage:
   s3:

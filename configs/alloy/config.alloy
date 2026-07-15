@@ -138,6 +138,9 @@ prometheus.scrape "tempo_self" {
 // Garage v2 exposes Prometheus metrics at the admin port (3903).
 // The endpoint requires the admin Bearer token.
 prometheus.scrape "garage_self" {
+  // ponytail: only meaningful when OBJECT_STORAGE=garage — if SeaweedFS is
+  // selected instead, this target simply fails to connect (harmless, retried
+  // every interval). Add a seaweedfs scrape block if you need its metrics too.
   targets      = [{"__address__" = "garage:3903"}]
   forward_to   = [prometheus.remote_write.mimir.receiver]
   scrape_interval = "30s"

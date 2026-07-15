@@ -1,5 +1,9 @@
 .env
 configs/garage/garage.toml
+configs/seaweedfs/s3.json
+configs/nginx/nginx.conf
+configs/nginx/ssl/*
+!configs/nginx/ssl/README.md
 
 # Python
 __pycache__/

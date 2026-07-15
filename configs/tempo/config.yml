@@ -28,12 +28,12 @@ storage:
     backend: s3
     s3:
       bucket: tempo
-      endpoint: garage:3900
-      access_key: ${GARAGE_ACCESS_KEY_ID}
-      secret_key: ${GARAGE_SECRET_ACCESS_KEY}
+      endpoint: ${OBJECT_STORAGE_ENDPOINT}
+      access_key: ${OBJECT_STORAGE_ACCESS_KEY_ID}
+      secret_key: ${OBJECT_STORAGE_SECRET_ACCESS_KEY}
       insecure: true
       forcepathstyle: true
-      region: garage
+      region: ${OBJECT_STORAGE_REGION}
     local:
       path: /var/tempo/traces
     wal:
