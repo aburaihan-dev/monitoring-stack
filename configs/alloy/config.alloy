@@ -140,7 +140,7 @@ prometheus.scrape "tempo_self" {
 prometheus.scrape "garage_self" {
   // ponytail: only meaningful when OBJECT_STORAGE=garage — if SeaweedFS is
   // selected instead, this target simply fails to connect (harmless, retried
-  // every interval). Add a seaweedfs scrape block if you need its metrics too.
+  // every interval). See seaweedfs_self scrape below for the other backend.
   targets      = [{"__address__" = "garage:3903"}]
   forward_to   = [prometheus.remote_write.mimir.receiver]
   scrape_interval = "30s"
@@ -150,6 +150,19 @@ prometheus.scrape "garage_self" {
     type        = "Bearer"
     credentials = env("GARAGE_ADMIN_TOKEN")
   }
+}
+
+// ─── Prometheus Scrape: SeaweedFS (S3 object storage) ────────────────────────
+// weed server exposes Prometheus metrics on -metricsPort (no auth required).
+prometheus.scrape "seaweedfs_self" {
+  // ponytail: only meaningful when OBJECT_STORAGE=seaweedfs — if Garage is
+  // selected instead, this target simply fails to connect (harmless, retried
+  // every interval), mirroring the garage_self scrape above.
+  targets      = [{"__address__" = "seaweedfs:9327"}]
+  forward_to   = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "30s"
+  job_name     = "seaweedfs"
+  metrics_path = "/metrics"
 }
 
 // ─── Prometheus Scrape: Blackbox HTTP probes ─────────────────────────────────

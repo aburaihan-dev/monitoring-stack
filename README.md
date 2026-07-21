@@ -125,11 +125,11 @@ Open `http://<HOST_IP>:3000` → log in with your `GRAFANA_ADMIN_USER` / `GRAFAN
 | Grafana Alloy | `grafana/alloy` | v1.17.1 | **:12345** UI · **:4317** gRPC · **:4318** HTTP · **:3500** Loki | Unified collector |
 | Alertmanager | `prom/alertmanager` | v0.33.1 | **:9093** | Alert routing |
 | UAR | `ghcr.io/jamesread/uncomplicated-alert-receiver` | latest | internal | Alert inbox UI |
-| Mimir | `grafana/mimir` | 3.1.2 | internal | Metrics storage (90 d) |
-| Loki | `grafana/loki` | 3.7.3 | internal | Log storage (30 d) |
-| Tempo | `grafana/tempo` | 3.0.2 | internal | Trace storage (14 d) |
-| Garage | `dxflrs/garage` | v2.3.0 | internal | S3-compatible object store — default backend |
-| SeaweedFS (alternative) | `chrislusf/seaweedfs` | 4.39 | internal | S3-compatible object store — only runs in `seaweedfs` storage mode |
+| Mimir | `grafana/mimir` | 3.1.2 | internal | Metrics storage (180 d) |
+| Loki | `grafana/loki` | 3.7.3 | internal | Log storage (180 d) |
+| Tempo | `grafana/tempo` | 3.0.2 | internal | Trace storage (180 d) |
+| Garage | `dxflrs/garage` | v2.3.0 | internal | S3-compatible object store — default backend, metrics scraped by Alloy |
+| SeaweedFS (alternative) | `chrislusf/seaweedfs` | 4.39 | internal | S3-compatible object store — only runs in `seaweedfs` storage mode, metrics scraped by Alloy |
 | Valkey | `valkey/valkey` | 9.1.0-alpine3.23 | internal | Query result cache |
 | node-exporter | `prom/node-exporter` | v1.12.1 | internal | Host metrics |
 | cAdvisor | `ghcr.io/google/cadvisor` | 0.60.5 | internal | Container metrics |

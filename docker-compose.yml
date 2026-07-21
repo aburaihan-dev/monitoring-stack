@@ -336,7 +336,7 @@ services:
     profiles: ["seaweedfs"]
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - "weed server -dir=/data -volume.max=0 -master.volumeSizeLimitMB=1024 -volume.preStopSeconds=1 -master.raftHashicorp=false -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -ip=seaweedfs"
+      - "weed server -dir=/data -volume.max=0 -master.volumeSizeLimitMB=1024 -volume.preStopSeconds=1 -master.raftHashicorp=false -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -ip=seaweedfs -metricsPort=9327"
     volumes:
       - ./configs/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
       - seaweedfs-data:/data
@@ -348,6 +348,7 @@ services:
       - "8333"   # S3 API (internal — used by Loki, Tempo, Mimir)
       - "8888"   # Filer HTTP (internal — used by storage-init to create buckets)
       - "9333"   # Master (internal)
+      - "9327"   # Prometheus metrics (internal — scraped by Alloy)
     networks:
       - monitoring
     mem_limit: 512m
