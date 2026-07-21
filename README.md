@@ -377,9 +377,9 @@ proxy is intentionally just a one-service, existing-cert front door.
 
 | Backend | Default | Env var |
 |---------|---------|---------|
-| Mimir (metrics) | 90 days | `MIMIR_RETENTION_PERIOD` |
-| Loki (logs) | 30 days | `LOKI_RETENTION_PERIOD` |
-| Tempo (traces) | 14 days | `TEMPO_RETENTION_PERIOD` |
+| Mimir (metrics) | 180 days | `MIMIR_RETENTION_PERIOD` |
+| Loki (logs) | 180 days | `LOKI_RETENTION_PERIOD` |
+| Tempo (traces) | 4320h (180 days) | `TEMPO_RETENTION_PERIOD` |
 
 ### Object storage backend
 
