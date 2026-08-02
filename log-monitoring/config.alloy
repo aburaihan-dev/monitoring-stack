@@ -1,0 +1,61 @@
+// 1. Discover all active Docker containers via the system socket
+discovery.docker "local_containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// 2. Normalize and structure metadata into indexed Loki labels
+discovery.relabel "docker_logs" {
+  targets = discovery.docker.local_containers.targets
+
+  // INJECT HOSTNAME: Map the host machine's precise text hostname
+  rule {
+    target_label = "host_name"
+    replacement  = sys.env("HOST_NAME")
+  }
+
+  // INJECT HOST IP: Map the host machine's primary IP address
+  rule {
+    target_label = "host_ip"
+    replacement  = sys.env("HOST_IP")
+  }
+
+  // Standard container metadata
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_image"]
+    target_label  = "image"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "compose_service"
+  }
+}
+
+// 3. Bind the container log targets to the discovery engine
+loki.source.docker "sys_logs" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.docker_logs.output
+  forward_to = [loki.write.existing_loki.receiver]
+}
+
+// 4. Batch and stream logs to your central Loki instance
+loki.write "existing_loki" {
+  endpoint {
+    url = "http://<server-ip>:3500/loki/api/v1/push"
+  }
+}

@@ -1,0 +1,22 @@
+
+services:
+  log-collector:
+    image: nexus-repo.asabd.org:5000/grafana/alloy:latest
+    container_name: log-collector
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    user: "0:0"
+    environment:
+      - HOST_IP=${HOST_IP:-127.0.0.1}
+      - HOST_NAME=${HOST_NAME:-unknown-host}
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: run --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
